@@ -115,7 +115,7 @@ here the minimap stays, because *seeing the split layout and choosing from it is
 
 <div align="center">
 
-![Opening everything at once spikes the CPU and dies again; opening one at a time stays low and all arrive](docs/assets/sequential-restore.svg)
+![Opening everything at once spikes the CPU and dies again; opening one at a time stays low and all arrive](docs/assets/restore-one-at-a-time.svg)
 
 </div>
 

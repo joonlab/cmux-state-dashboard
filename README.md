@@ -112,7 +112,7 @@ cmux 제어면(8/26). 전말은 <a href="docs/HISTORY.md">개발사(史)</a>에.
 
 <div align="center">
 
-![한 번에 열면 CPU가 치솟아 다시 꺼지고, 하나씩 열면 낮게 유지되며 전부 도착한다](docs/assets/sequential-restore.svg)
+![한 번에 열면 CPU가 치솟아 다시 꺼지고, 하나씩 열면 낮게 유지되며 전부 도착한다](docs/assets/restore-one-at-a-time.svg)
 
 </div>
 
