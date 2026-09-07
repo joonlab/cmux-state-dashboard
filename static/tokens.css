@@ -1,0 +1,444 @@
+/* ============================================================================
+   tokens.css — 이 대시보드의 **유일한** 색 정의처
+   ----------------------------------------------------------------------------
+   왜 있나 (2026-08-31):
+     토큰이 index.html `:root` · now.html `:root` · board.css/nav.css 세 곳에
+     흩어져 있었고, 앞의 두 곳은 11개를 **글자 그대로 복사**해 두고 있었다.
+     그 바깥에 하드코딩 hex 49개(고유 42) · rgba 52개가 더 있었다. 한 색을 고치려면
+     여섯 파일을 뒤져야 했고, 그래서 실제로 같은 역할에 다른 값이 붙어 있었다.
+
+   ── 색 체계: Emerald Noir (2026-08-31 도입) ────────────────────────────────
+   시그니처 하나 + 무채 둘 + 강조 하나. 원색은 넷뿐이다:
+
+     Emerald Green   #0F5132   시그니처 — 이 도구 자신
+     Neutral Gray    #646A6B   보조 글자
+     Premium Silver  #AEB4B2   테두리·구분선
+     Highlight Gold  #A38A5C   특별 강조(고정·마일스톤·검색 일치)
+
+   원색은 **라이트 테마의 값**이다. 다크에서는 같은 색상(hue)의 밝은 변주를 쓴다 —
+   #0F5132 를 검은 배경에 글자로 얹으면 대비가 3.8 밖에 안 나온다(측정). 즉 팔레트는
+   '색상'을 정하고 '명도'는 테마가 정한다.
+
+   ⚠️ Premium Silver 를 **본문 글자에 쓰지 않는다.** 흰 바탕에서 대비 2 대다.
+      이 색의 자리는 선이지 글자가 아니다.
+
+   ── 층을 둘로 나눈 이유 ────────────────────────────────────────────────────
+   이 화면에는 색이 **이미 뜻을 지고 있는 자리**가 다섯이다(작업중·권한대기·대기·
+   유휴·판정불가). 브랜드 색을 그냥 얹으면 그중 하나를 덮어 뜻이 깨진다. 그래서
+
+     [브랜드층]  --accent(에메랄드) · --dim(그레이) · --border(실버) · --gold
+                 링크·활성 탭·포커스·선택·편집 모드 — **도구가 자기를 드러내는 곳**
+     [의미층]    --green --amber --claude --red
+                 상태 배지와 카드 왼쪽 3px 선 — **데이터가 말하는 곳**
+
+   두 층은 섞지 않는다. 브랜드를 바꿔도 의미층 다섯은 서로 구별된 채 남아야 한다.
+   나타나는 모양도 다르다 — 브랜드는 글자·테두리·채움, 의미는 3px 선과 작은 아이콘.
+
+   ⚠️ 그룹 카드의 왼쪽 색(분홍·파랑 등)은 **우리 색이 아니다.** cmux 가 그룹마다
+      저장한 customColor 를 그대로 그린다(nav.js). 팔레트로 통제할 수 없다.
+
+   ── 쓰는 규칙 셋 ───────────────────────────────────────────────────────────
+     1. 색은 여기서만 정의한다. 다른 파일에 hex/rgba 를 새로 쓰지 않는다.
+     2. 반투명은 `rgb(var(--x-rgb) / .15)` 로 만든다. 원색 토큰 하나만 바꾸면
+        그 색의 모든 농도가 따라온다 — 테마 전환이 성립하는 이유가 이것이다.
+     3. 테마는 **역할 토큰의 값만** 바꾼다. 선택자는 건드리지 않는다.
+
+   ⚠️ 새 CSS/JS 를 static/ 에 추가하면 app.py 의 ASSETS 에도 넣어야 한다. 안 하면
+      `?v=` 가 안 붙어 브라우저가 옛 파일을 계속 쓴다(WKWebView 는 no-store 로도
+      캐시본을 쓴다 — 실측 2026-08-24).
+   ========================================================================== */
+
+:root{
+  color-scheme:dark;
+
+  /* ── 브랜드층 ─────────────────────────────────────────────────────────── */
+  /* Emerald #0F5132 의 다크 변주. 밝기는 **가장 불리한 자리**가 정했다 — 유휴 카드
+     안에서 흐려진 '보임' 배지(.btag.on). #2fa87a 는 거기서 대비 3.40 으로 개편 전
+     파랑(3.86)보다 낮았다. #3cc492 로 올려 4.35. 더 올리면(#45cf9c → 4.78) AA 는
+     넘지만 민트로 떠서 '누아'가 아니게 된다. */
+  --accent:#3cc492;   --accent-rgb:60 196 146;
+  --gold:#c4a575;     --gold-rgb:196 165 117;    /* Champagne #A38A5C 의 다크 변주 */
+  --dim:#98a49e;      --dim-rgb:152 164 158;     /* Neutral Gray #646A6B 의 다크 변주 */
+  --border:#243128;                              /* Premium Silver 의 다크 변주 = 구분선 */
+
+  /* ── 의미층 — 브랜드와 섞지 않는다 ────────────────────────────────────── */
+  --green:#5ed18a;    --green-rgb:94 209 138;    /* 작업중 */
+  /* 뒤에서 진행 — amber(권한 대기)와 **같은 노랑이면 안 된다**(급한 정도가 정반대다).
+     amber 는 주황 쪽 황금, 이쪽은 밝은 레몬으로 갈라 둔다. gold(베이지)는 채도가 낮아
+     배경 틴트로 깔면 회색으로 묻혀서 따로 뽑았다. */
+  --lemon:#dfc95f;    --lemon-rgb:223 201 95;    /* 뒤에서 진행 */
+  --amber:#d9ae45;    --amber-rgb:217 174 69;    /* 권한 대기 */
+  --claude:#d9855f;   --claude-rgb:217 133 95;   /* 대기 · Claude 세션 표식 */
+  --red:#ef6157;      --red-rgb:239 97 87;       /* 판정 불가 */
+  --amber-text:#e6c97e;  /* amber 배경 위 경고문 — 원색은 대비가 모자란다 */
+
+  /* ── 면(surface) — 에메랄드 쪽으로 은은하게 기운 검정 ─────────────────── */
+  --bg:#0a0f0d;         /* 페이지 바닥 */
+  --panel:#101714;      /* 카드·헤더 */
+  --panel2:#17201c;     /* 카드 안의 한 겹 더 (입력·칩·버튼) */
+  --sunken:#070b09;     /* 파묻힌 면 — 코드블록·미니맵 우물 */
+  --raised:#1b2521;     /* 떠 있는 면 — 토스트 */
+  --tip-bg:#141d19;     /* hover 설명 말풍선 */
+  --notice-bg:#0e2a21;  /* 새 버전 알림 배너 */
+  --editbar-a:#16211a;  /* 편집 바 그라데이션 시작 */
+  --editbar-b:#111813;  /* 편집 바 그라데이션 끝 */
+
+  /* ── 글자 ─────────────────────────────────────────────────────────────── */
+  --text:#e8eeea;
+  --text-code:#c4d0ca;  /* 모노스페이스 코드 본문 */
+  --on-accent:#03150e;  /* 에메랄드로 채운 버튼 위의 글자 */
+  --on-claude:#150a06;  /* claude 로 채운 버튼 위의 글자 */
+
+  /* ── 선 ───────────────────────────────────────────────────────────────── */
+  --edge-idle:#31403a;   /* 유휴/낡음 카드의 왼쪽 상태선 */
+  --edge-none:#27332d;   /* claude 없는 카드 */
+  --swatch-line:rgb(255 255 255 / .22);  /* 색상 견본(.cdot) 테두리 */
+  --pin:#c4a575;         /* 고정 표시 — Highlight Gold */
+  --group-fallback:#3b4a43;  /* cmux 가 색을 안 준 그룹의 기본 왼쪽 선 */
+
+  /* ── 스크롤바 ─────────────────────────────────────────────────────────── */
+  --scrollbar:#29362f;
+  --scrollbar-hover:#38473f;
+
+  /* ── 면 위에 얹는 미세한 결 ───────────────────────────────────────────── */
+  /* 어두운 테마에선 흰색을 아주 옅게 얹어 밝히고, 밝은 테마에선 검정을 얹어 낮춘다.
+     그래서 규칙은 `rgb(var(--tint-rgb) / .02)` 하나로 두 테마를 다 커버한다. */
+  --tint-rgb:255 255 255;
+
+  /* ── 흐림 정도 ────────────────────────────────────────────────────────── */
+  /* '덜 중요하다'는 신호를 opacity 로 준다. 그런데 **같은 opacity 가 두 테마에서
+     같은 세기가 아니다** — 어두운 바탕에선 글자가 배경 쪽으로 조금 가라앉는 정도지만,
+     흰 바탕에선 흰색과 섞여 훨씬 빨리 날아간다. 그래서 세기도 토큰으로 둔다. */
+  --fade-idle:.66;
+  --fade-stale:.5;
+  --fade-none:.72;
+  --fade-card:.72;   /* '지금 어디' 목록 보기의 유휴 카드는 카드째 흐리다 */
+
+  /* ── 그림자 ───────────────────────────────────────────────────────────── */
+  --shadow-sm:0 6px 18px rgb(0 0 0 / .4);
+  --shadow-md:0 8px 22px rgb(0 0 0 / .55);
+  --shadow-lg:0 10px 26px rgb(0 0 0 / .6);
+
+  /* ── 글꼴 ─────────────────────────────────────────────────────────────── */
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  /* Pretendard 를 먼저 둔다. 이 맥에 이미 설치돼 있어 **저장소에 폰트 파일을 넣지 않아도**
+     쓰이고, 없는 환경에서는 조용히 시스템 폰트로 내려간다(오프라인에서도 안전하다).
+     한글·영문 자소 크기가 고르게 맞아, 「cmux 관제실」처럼 두 문자가 섞인 제목에서
+     시스템 폰트보다 줄이 덜 흔들린다. */
+  --sans:Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Segoe UI",sans-serif;
+}
+
+/* ============================================================================
+   라이트 테마 — 값만 덮어쓴다. 선택자는 그대로다.
+   ----------------------------------------------------------------------------
+   여기서는 팔레트 **원색**을 그대로 쓴다. Emerald #0F5132 · Neutral Gray #646A6B ·
+   Premium Silver #AEB4B2 · Highlight Gold #A38A5C 가 원래 밝은 바탕을 전제로 만들어진
+   값이기 때문이다. 다만 골드는 글자로 쓰면 흰 바탕에서 대비가 2.99 라 #7d6740 으로
+   낮췄다(측정 4.9). Premium Silver 는 규칙대로 **선에만** 쓴다.
+
+   두 번 쓰는 이유: 시스템 설정을 따라가는 기본 상태(@media)와, 사용자가 이 사이트에서
+   명시적으로 고른 상태([data-theme])는 다른 사건이다. 명시 선택이 시스템보다 세야 하므로
+   [data-theme] 블록이 뒤에 온다. 그리고 시스템이 라이트인데 사용자가 다크를 골랐다면
+   @media 가 이겨선 안 되므로 `:root:not([data-theme])` 로 잠근다.
+   ========================================================================== */
+
+@media (prefers-color-scheme: light){
+  :root:not([data-theme]){
+    color-scheme:light;
+
+    /* ── 브랜드층 — 팔레트 원색 ── */
+    --accent:#0f5132;   --accent-rgb:15 81 50;      /* Emerald Green 원색 */
+    --gold:#7d6740;     --gold-rgb:125 103 64;      /* Highlight Gold #A38A5C 를 글자용으로 낮춤 */
+    --dim:#555c5b;      --dim-rgb:85 92 91;         /* Neutral Gray #646A6B 계열 */
+    --border:#c3ccc7;                               /* Premium Silver #AEB4B2 계열 — 선 전용 */
+
+    /* ── 의미층 ── */
+    --green:#1a7f3c;    --green-rgb:26 127 60;
+    --lemon:#7a6a12;    --lemon-rgb:122 106 18;
+    --amber:#8a6100;    --amber-rgb:138 97 0;
+    --claude:#a8501f;   --claude-rgb:168 80 31;
+    --red:#c4322c;      --red-rgb:196 50 44;
+    --amber-text:#6b4c00;
+
+    /* ── 면 ── */
+    --bg:#fbfcfb;
+    --panel:#f2f5f3;
+    --panel2:#e7ebe8;
+    --sunken:#eef2ef;
+    --raised:#ffffff;
+    --tip-bg:#ffffff;
+    --notice-bg:#e3f1ea;
+    --editbar-a:#ffffff;
+    --editbar-b:#f2f5f3;
+
+    /* ── 글자 ── */
+    --text:#16201b;
+    --text-code:#16201b;
+    --on-accent:#ffffff;
+    --on-claude:#ffffff;
+
+    /* ── 선 ── */
+    --edge-idle:#bfc8c3;
+    --edge-none:#dee4e0;
+    --swatch-line:rgb(0 0 0 / .22);
+    --pin:#7d6740;
+    --group-fallback:#8a948f;
+
+    --scrollbar:#c3ccc7;
+    --scrollbar-hover:#a6b0ab;
+
+    --tint-rgb:0 0 0;
+
+    --fade-idle:.87;
+    --fade-stale:.8;
+    --fade-none:.9;
+    --fade-card:.9;
+
+    --shadow-sm:0 6px 18px rgb(22 32 27 / .10);
+    --shadow-md:0 8px 22px rgb(22 32 27 / .14);
+    --shadow-lg:0 10px 26px rgb(22 32 27 / .18);
+  }
+}
+
+:root[data-theme="light"]{
+  color-scheme:light;
+
+  /* ── 브랜드층 — 팔레트 원색 ── */
+  --accent:#0f5132;   --accent-rgb:15 81 50;      /* Emerald Green 원색 */
+  --gold:#7d6740;     --gold-rgb:125 103 64;      /* Highlight Gold #A38A5C 를 글자용으로 낮춤 */
+  --dim:#555c5b;      --dim-rgb:85 92 91;         /* Neutral Gray #646A6B 계열 */
+  --border:#c3ccc7;                               /* Premium Silver #AEB4B2 계열 — 선 전용 */
+
+  /* ── 의미층 ── */
+  --green:#1a7f3c;    --green-rgb:26 127 60;
+  --lemon:#7a6a12;    --lemon-rgb:122 106 18;
+  --amber:#8a6100;    --amber-rgb:138 97 0;
+  --claude:#a8501f;   --claude-rgb:168 80 31;
+  --red:#c4322c;      --red-rgb:196 50 44;
+  --amber-text:#6b4c00;
+
+  /* ── 면 ── */
+  --bg:#fbfcfb;
+  --panel:#f2f5f3;
+  --panel2:#e7ebe8;
+  --sunken:#eef2ef;
+  --raised:#ffffff;
+  --tip-bg:#ffffff;
+  --notice-bg:#e3f1ea;
+  --editbar-a:#ffffff;
+  --editbar-b:#f2f5f3;
+
+  /* ── 글자 ── */
+  --text:#16201b;
+  --text-code:#16201b;
+  --on-accent:#ffffff;
+  --on-claude:#ffffff;
+
+  /* ── 선 ── */
+  --edge-idle:#bfc8c3;
+  --edge-none:#dee4e0;
+  --swatch-line:rgb(0 0 0 / .22);
+  --pin:#7d6740;
+  --group-fallback:#8a948f;
+
+  --scrollbar:#c3ccc7;
+  --scrollbar-hover:#a6b0ab;
+
+  --tint-rgb:0 0 0;
+
+  --fade-idle:.87;
+  --fade-stale:.8;
+  --fade-none:.9;
+  --fade-card:.9;
+
+  --shadow-sm:0 6px 18px rgb(22 32 27 / .10);
+  --shadow-md:0 8px 22px rgb(22 32 27 / .14);
+  --shadow-lg:0 10px 26px rgb(22 32 27 / .18);
+}
+
+/* 다크를 명시적으로 고른 경우 — :root 기본값이 이미 다크라 값은 다시 안 쓴다.
+   시스템이 라이트여도 위 @media 는 `:not([data-theme])` 라 여기까지 안 온다. */
+:root[data-theme="dark"]{ color-scheme:dark; }
+
+/* ============================================================================
+   아이콘 기본형 — icons.js 가 뱉는 <svg class="lic"> 의 뼈대
+   ----------------------------------------------------------------------------
+   색을 여기서 정하지 않는다. stroke 는 currentColor 라 **부모 글자색을 따라간다** —
+   그래서 테마를 바꿔도 아이콘 쪽에 손댈 일이 없다. 예외는 상태 5색뿐이고, 그건
+   카드 왼쪽 선(.nav-card.running 등)과 **같은 토큰**을 써서 둘이 어긋나지 않게 한다.
+   ========================================================================== */
+/* ⚠️ display 를 반드시 준다. <svg> 의 UA 기본값은 `inline` 인데 **비치환 인라인 요소에는
+   transform 이 적용되지 않는다** — 애니메이션은 등록되고 playState 도 running 인데 화면에는
+   matrix(1,0,0,1,0,0) 만 나온다(실측 2026-08-31: currentTime 이 0 에서 안 움직였다).
+   원인을 찾기 어려운 종류라, 도는 아이콘뿐 아니라 .lic 전체에 걸어 다시는 안 밟게 한다. */
+.lic{display:inline-block;width:1em;height:1em;flex:none;vertical-align:-.14em}
+.lic-emoji{display:inline-block;width:1em;height:1em;line-height:1;text-align:center;font-style:normal}
+
+/* 돌고 있는 세션만 실제로 돈다 — 이 화면에서 **움직이는 것은 이것 하나뿐**이라,
+   정지된 카드 78장 사이에서 "지금 일하는 것"이 눈에 먼저 걸린다.
+
+   ⚠️ 예전엔 `prefers-reduced-motion: reduce` 에서 animation:none 으로 **꺼 버렸다.**
+      그런데 이 맥은 그 설정이 켜져 있어서(실측 2026-08-31: animationName 이 none) 스피너가
+      한 번도 안 돌았다 — 상태를 알리는 유일한 동적 신호를 접근성 배려가 통째로 죽인 것이다.
+      이건 배려가 아니라 기능 상실이다. 그 설정의 취지는 큰 화면 전환·패럴랙스·자동 재생을
+      줄이라는 것이지, 13px 짜리 로딩 표시를 없애라는 게 아니다.
+   → 끄지 않고 **늦춘다.** 절반 속도로 돌면 "살아 있다"는 것은 그대로 읽히면서
+      시야 가장자리에서 깜빡이는 느낌은 사라진다. */
+@keyframes lic-spin{to{transform:rotate(360deg)}}
+.lic.spin{animation:lic-spin 1.1s linear infinite;transform-origin:50% 50%}
+@media (prefers-reduced-motion:reduce){ .lic.spin{animation-duration:2.6s} }
+
+.lic.st-running{color:var(--green)}
+.lic.st-permission,.lic.st-question{color:var(--amber)}
+.lic.st-background{color:var(--lemon)}
+.lic.st-waiting{color:var(--claude)}
+.lic.st-idle{color:var(--dim)}
+.lic.st-unknown{color:var(--red)}
+.lic.pin{color:var(--pin)}
+.lic.st-none{color:var(--edge-none)}
+
+/* 채운 점 — 예전 🟠(claude 세션) · 🟢(실행중) 자리.
+   lucide circle 은 테두리만 있는 원이라 fill 을 켜고 stroke 를 끈다. */
+.lic.claudedot,.lic.livedot{fill:currentColor;stroke:none;width:.62em;height:.62em;vertical-align:.03em}
+.lic.claudedot{color:var(--claude)}
+
+/* 아이콘이 글자와 나란히 서는 자리 */
+.gic{display:inline-flex;align-items:center;opacity:.85}
+.wd{display:inline-flex;align-items:center;gap:2px}
+.grip{display:inline-flex;align-items:center;color:var(--dim);cursor:grab}
+
+/* 검색창 앞머리 아이콘 — placeholder 에는 SVG 를 못 넣어서 입력을 감싼다 */
+/* 헤더가 flex-wrap 이라, 폭이 넉넉할 땐 한 줄에 다 들어가느라 검색칸이 min-width 까지
+   쪼그라들고(→ 안내문이 잘림), 좁을 땐 오히려 줄바꿈돼 넓어지는 역전이 있었다(신고 2026-09-02).
+   남는 가로를 검색칸이 먹게 해서 **넓은 화면일수록 넓어지도록** 뒤집는다. */
+.searchwrap{position:relative;display:inline-flex;align-items:center;
+  flex:1 1 340px;min-width:250px;max-width:560px}
+/* ⚠️ absolute 인데 top 을 안 주면 **정적 위치(=인라인 baseline)** 에 그대로 놓인다.
+   .lic 은 vertical-align:-.14em 로 baseline 에 맞춰 둔 인라인 아이콘이라, 그 자리가
+   입력칸 세로 중앙이 아니라 글자 윗선 근처다 → 돋보기가 위로 떠 보였다(신고 2026-09-02).
+   top:50% + translateY(-50%) 로 입력칸 높이의 한가운데에 못 박는다. */
+.searchwrap .lic{position:absolute;left:10px;top:50%;transform:translateY(-50%);
+  color:var(--dim);pointer-events:none;font-size:15px}
+.searchwrap input{padding-left:33px}
+.searchwrap:focus-within .lic{color:var(--accent)}
+
+/* ============================================================================
+   공용 컨트롤 — 두 페이지(index.html · now.html)가 함께 쓴다.
+   여기 두는 이유는 tokens.css 가 **양쪽 모두** 읽는 유일한 시트이기 때문이다.
+   각 페이지의 인라인 <style> 에 넣으면 예전 :root 처럼 또 두 벌이 된다.
+   ========================================================================== */
+.iconbtn{display:inline-flex;align-items:center;gap:5px;padding:6px 10px;
+  border:1px solid var(--border);border-radius:7px;background:var(--panel);
+  color:var(--dim);cursor:pointer;font:inherit;font-size:14px;line-height:1}
+.iconbtn:hover{color:var(--text);border-color:var(--accent)}
+.iconbtn .tmode{font-size:10px;color:var(--dim)}
+
+/* 토스트 — 두 페이지에 거의 같은 규칙이 두 벌 있었다(padding 만 1px 달랐다).
+   ⚠️ 라이트에서 --raised 는 흰색이라 흰 페이지 위에서 1px 테두리만으로는 안 보인다.
+      그림자가 이 컴포넌트를 '떠 있는 것'으로 만드는 유일한 단서라 필수다. */
+/* 숫자는 **폭을 고정한다.** 이 화면의 숫자는 5초마다 갱신된다 — 탭 수·상태별 개수·
+   경과 시간이 전부 살아 움직인다. 폭이 제각각인 기본 숫자를 쓰면 값이 바뀔 때마다 뒤따르는
+   글자가 좌우로 밀려 화면이 덜덜 떨린다. 미관이 아니라 읽힘의 문제다. */
+body{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+
+#toast{position:fixed;bottom:21px;left:50%;transform:translateX(-50%);
+  background:var(--raised);border:1px solid var(--border);color:var(--text);
+  padding:10px 16px;border-radius:8px;box-shadow:var(--shadow-md);
+  opacity:0;transition:opacity .2s;pointer-events:none;z-index:100;font-size:13px}
+#toast.show{opacity:1}
+
+/* ============================================================================
+   막힘 강조 — 사람이 답해야 풀리는 카드는 **통통 튄다**
+   ----------------------------------------------------------------------------
+   권한 대기·질문 대기는 내가 안 보면 아무것도 안 나아지는 유일한 상태다. 이미 맨 앞·맨 위로
+   오고 자물쇠와 amber 물듦까지 갖고 있지만, 그건 전부 **찾아봐야 보이는** 신호다.
+   움직임은 **안 찾아도 눈에 걸리는** 유일한 채널이라 여기에만 쓴다 —
+   화면에서 움직이는 것이 이것뿐이어야 이것이 신호가 된다(작업중 스피너는 13px 아이콘 안에서만 돈다).
+
+   ⚠️ **hover 중에는 멈춘다.** 두 가지 이유가 겹친다:
+     ① `transform` 은 **쌓임 맥락을 만든다.** 카드의 hover 설명(.bcard[data-desc]::after)은
+        z-index:40 으로 뒤따르는 카드 위에 떠야 하는데, 부모에 transform 이 걸려 있으면
+        거기 갇혀 글자가 겹쳐 보인다 — opacity 로 똑같이 당했던 사고와 같은 뿌리(b52af21).
+        :not(:hover) 로 두면 설명이 뜨는 순간 transform 이 사라져 맥락도 함께 사라진다.
+     ② 읽으려고 커서를 올린 카드가 계속 흔들리면 읽기 힘들다.
+
+   ⚠️ `prefers-reduced-motion: reduce` 에서 **끄지 않는다.** 이 맥은 그 설정이 켜져 있고,
+      예전에 스피너를 animation:none 으로 껐다가 "한 번도 돈 적이 없는" 상태로 방치됐다.
+      대신 **위치 이동을 빼고 빛만 숨쉬게** 한다 — 시선을 끄는 목적은 지키면서
+      시야 가장자리에서 튀는 느낌은 없앤다.
+   ========================================================================== */
+/* ⚠️ --tint 를 **등록**해야 색이 보간된다. 등록하지 않은 커스텀 프로퍼티는 CSS 가
+   문자열로만 다뤄서 키프레임 사이에서 뚝뚝 끊긴다(중간값이 없다).
+   syntax:'<color>' 로 등록하면 브라우저가 색으로 이해해 부드럽게 섞어 준다.
+   inherits:false — 자식이 물려받으면 안 된다. 이 값은 카드 자신의 배경에만 쓴다. */
+@property --tint{syntax:'<color>';inherits:false;initial-value:transparent}
+
+/* **쉬지 않고 계속 튄다.**
+   두 번 고치고서야 알아낸 것: 키프레임에서 정지 구간을 지운 것만으로는 부족했다.
+   쉬는 자리가 없어도 **마지막 뜀이 1.2px 이면 눈에 안 보여서 그 구간이 정지로 읽힌다**
+   (신고 2회). 기준은 "움직이고 있다"가 아니라 **"움직이는 게 보인다"** 여야 했다.
+
+   → 감쇠를 얕게: 5.5 → 4.2 → 3.2px. 셋 다 확실히 보이는 크기다. 공이 힘을 잃는 느낌은
+     남기되(같은 높이로 뛰면 기계가 흔드는 것처럼 보인다) 어느 뜀도 사라지지 않을 만큼만 줄인다.
+   → 간격도 고르게(17% 씩). 박자가 흔들리면 그것도 '멈칫'으로 읽힌다.
+   → 높이는 --hop-scale 로 한 번에 줄인다. 키프레임을 두 벌로 복제하지 않으려고 calc() 안에 뒀다.
+   완급은 **키프레임 안에서** 정한다 — 올라갈 때 cubic-bezier(.22,1,.36,1) 로 빠르게
+   빠져나가고, 내려올 때 (.55,.06,.68,.19) 로 가속해 떨어진다. 등속이면 '통통'이 아니라
+   '둥둥'이 된다.
+   색도 뜀마다 같이 짙어진다(.16 ↔ .33). 위치만 움직이면 곁눈으로 잘 안 잡히는데,
+   면이 함께 숨쉬면 화면 구석에 있어도 걸린다.
+   링(box-shadow)은 **가장 큰 뜀에만** 한 번 퍼진다. 뜀마다 퍼뜨리면 시끄럽다. */
+@keyframes blocked-bump{
+  0%  {transform:translateY(0) scale(1);           --tint:rgb(var(--bump-rgb, var(--amber-rgb)) / .16);
+       box-shadow:0 0 0 0 rgb(var(--bump-rgb, var(--amber-rgb)) / .5);
+       animation-timing-function:cubic-bezier(.22,1,.36,1)}
+  17% {transform:translateY(calc(-5.5px * var(--hop-scale,1))) scale(1.016);
+       --tint:rgb(var(--bump-rgb, var(--amber-rgb)) / .33);
+       box-shadow:0 0 0 7px rgb(var(--bump-rgb, var(--amber-rgb)) / 0);
+       animation-timing-function:cubic-bezier(.55,.06,.68,.19)}
+  33% {transform:translateY(0) scale(1);           --tint:rgb(var(--bump-rgb, var(--amber-rgb)) / .19);
+       animation-timing-function:cubic-bezier(.22,1,.36,1)}
+  50% {transform:translateY(calc(-4.2px * var(--hop-scale,1))) scale(1.012);
+       --tint:rgb(var(--bump-rgb, var(--amber-rgb)) / .29);
+       animation-timing-function:cubic-bezier(.55,.06,.68,.19)}
+  67% {transform:translateY(0) scale(1);           --tint:rgb(var(--bump-rgb, var(--amber-rgb)) / .19);
+       animation-timing-function:cubic-bezier(.22,1,.36,1)}
+  83% {transform:translateY(calc(-3.2px * var(--hop-scale,1))) scale(1.009);
+       --tint:rgb(var(--bump-rgb, var(--amber-rgb)) / .26);
+       animation-timing-function:cubic-bezier(.55,.06,.68,.19)}
+  100%{transform:translateY(0) scale(1);           --tint:rgb(var(--bump-rgb, var(--amber-rgb)) / .16);
+       box-shadow:0 0 0 0 rgb(var(--bump-rgb, var(--amber-rgb)) / 0)}
+}
+.bcard.permission:not(:hover),   .bcard.question:not(:hover),
+.nav-card.permission:not(:hover),.nav-card.question:not(:hover){
+  animation:blocked-bump 1.45s linear infinite}   /* 완급은 키프레임이 정한다 */
+
+/* ── '방금 끝났다' 는 두 종류이고, **급한 정도가 다르므로 세기도 다르다** ──────────────
+   justdone  뒤에서 돌던 게 막 끝났다 — 여기서 내가 안 찌르면 다음이 영영 안 이어진다.
+             그래서 막힘과 같은 세기로 뛰되 색은 레몬(뒤에서 진행과 같은 계열)이다.
+   fresh     그냥 답이 막 나왔다 — 급하진 않고 '방금 나왔다'만 알리면 된다. 절반 높이로
+             느리게 뛴다. 탭을 여럿 돌릴 땐 이게 동시에 여러 개 뛰므로 약해야 한다.
+   ⚠️ 둘 다 **지금 보고 있는 탭(.here)에서는 뛰지 않는다** — 이미 보고 있는 걸 두드릴 이유가
+      없고, 클릭해서 그 탭으로 넘어간 순간 조용해지는 것이 사용자가 기대하는 반응이다. */
+.bcard.justdone:not(:hover):not(.here),   .nav-card.justdone:not(:hover):not(.here){
+  --bump-rgb:var(--lemon-rgb);
+  animation:blocked-bump 1.45s linear infinite}
+.bcard.fresh:not(:hover):not(.here),      .nav-card.fresh:not(:hover):not(.here){
+  --bump-rgb:var(--claude-rgb); --hop-scale:.5;
+  animation:blocked-bump 2.1s linear infinite}
+
+@media (prefers-reduced-motion:reduce){
+  /* 끄지 않고 **높이만 줄인다.** 이 맥은 이 설정이 켜져 있어서, 끄면 사용자가 명시적으로
+     요청한 강조가 통째로 사라진다(스피너를 animation:none 으로 껐다가 한 번도 안 돌았던 것과
+     같은 실수). 0.6 배 = 3.3 / 2.5 / 1.9px — 셋 다 여전히 보인다.
+     ⚠️ **더 줄이지 말 것.** 1px 아래로 내려간 뜀은 눈에 안 보여서 그 구간이 '멈춤'으로
+     읽힌다(신고 2회로 확인한 것이 정확히 이것이다). 색이 짙어지는 것은 그대로 둔다. */
+  .bcard.permission:not(:hover),   .bcard.question:not(:hover),
+  .nav-card.permission:not(:hover),.nav-card.question:not(:hover),
+  .bcard.justdone:not(:hover):not(.here),.nav-card.justdone:not(:hover):not(.here){
+    --hop-scale:.6;animation-duration:1.8s}
+  /* fresh 는 원래 절반 높이라 여기서 또 0.6 을 곱하면 1px 아래로 내려가 '멈춘 것'이 된다.
+     줄이는 대신 **그 하한(0.6)에 맞춰 세운다** — 약한 신호도 움직이긴 해야 한다. */
+  .bcard.fresh:not(:hover):not(.here),.nav-card.fresh:not(:hover):not(.here){
+    --hop-scale:.6;animation-duration:2.4s}
+}

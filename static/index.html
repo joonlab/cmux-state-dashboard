@@ -1,0 +1,1244 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cmux 관제실</title>
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<!-- 테마는 CSS 보다 먼저 정해져야 한다 — 나중에 붙이면 다크 화면이 한 프레임 번쩍인다 -->
+<script src="/static/theme.js"></script>
+<link rel="stylesheet" href="/static/tokens.css">
+<link rel="stylesheet" href="/static/nav.css">
+<link rel="stylesheet" href="/static/board.css">
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:var(--sans);font-size:14px}
+  header{position:sticky;top:0;z-index:10;background:var(--panel);border-bottom:1px solid var(--border);
+    padding:10px 16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  /* 제목 = 로고 마크 + 워드마크. 마크는 cmux 로고의 캐럿만 뽑은 것이라 배경이 없다 —
+     헤더 바탕에 녹아들어 글자와 한 줄로 읽힌다. */
+  h1{display:flex;align-items:center;gap:7px;font-size:16.5px;margin:0;
+     font-weight:700;letter-spacing:-.015em;white-space:nowrap}
+  h1 .mark{width:19px;height:19px;flex:none;display:block}
+  h1 .em{color:var(--accent);font-weight:700}
+  .status{font-size:12px;color:var(--dim);display:flex;gap:11px;align-items:center;white-space:nowrap}
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px}
+  .dot.on{background:var(--green)} .dot.off{background:var(--red)}
+  .tabs{display:flex;gap:4px;margin-left:auto}
+  .tab{padding:6px 14px;border-radius:7px;cursor:pointer;color:var(--dim);border:1px solid transparent}
+  .tab.active{background:var(--panel2);color:var(--text);border-color:var(--border)}
+  main{padding:16px;max-width:1100px;margin:0 auto}
+  /* 창별 컬럼 보드는 화면 전체 폭을 쓴다 — 1100px 로 가두면 컬럼이 잘린다 */
+  body.board-page main{max-width:none}
+  .win{margin-bottom:22px}
+  .win-head{font-size:13px;color:var(--dim);font-weight:600;margin:0 0 8px;
+    display:flex;align-items:center;gap:8px}
+  .ws{background:var(--panel);border:1px solid var(--border);border-radius:10px;
+    padding:12px 14px;margin-bottom:10px;overflow:hidden}
+  /* claude 세션이 열린 워크스페이스 = 옅은 Claude 주황 블록 */
+  .ws.hasclaude{background:rgb(var(--claude-rgb) / .11);border-color:rgb(var(--claude-rgb) / .42);
+    border-left:3px solid var(--claude)}
+  .selbox{width:15px;height:15px;accent-color:var(--accent);cursor:pointer;flex:none;margin-right:2px}
+  .filterbar{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+  /* 스냅샷 피커 페이지 이동 — 한 줄에 붙여 필터바가 흩어지지 않게 */
+  .pager{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;
+    padding:4px 10px;border:1px solid var(--border);border-radius:8px;background:var(--panel)}
+  .pager button{padding:4px 9px;font-size:12px}
+  .pager button:disabled{opacity:.35;cursor:default}
+  .pager input[type=date]{font:inherit;font-size:12px;background:var(--panel2);color:var(--text);
+    border:1px solid var(--border);border-radius:6px;padding:3px 7px;outline:none}
+  .toggle{display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;
+    padding:5px 10px;border:1px solid var(--border);border-radius:7px;background:var(--panel)}
+  .toggle input{accent-color:var(--accent);cursor:pointer}
+  /* 검색칸 자체는 여기, **돋보기 위치는 tokens.css 의 .searchwrap** 이 정본이다. */
+  .search{font:inherit;font-size:13px;background:var(--panel2);color:var(--text);
+    border:1px solid var(--border);border-radius:7px;padding:6px 10px;outline:none;
+    width:100%;min-width:0;
+    /* 안내문(placeholder)도 입력값도, 잘릴 땐 잘렸다는 걸 … 로 알린다.
+       이게 없으면 "탭·워크스페이스·그룹·창·세션·프롬프" 처럼 글자 중간에서 뚝 끊겨,
+       원래 그런 문구인지 잘린 것인지 구별이 안 된다. */
+    text-overflow:ellipsis}
+  .search:focus{border-color:var(--accent)}
+  mark{background:rgb(var(--gold-rgb) / .34);color:var(--text);border-radius:2px;padding:0 1px}
+  .selbar{position:sticky;top:52px;z-index:5;background:var(--panel);border:1px solid var(--border);
+    border-radius:8px;padding:8px 12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+  .selbar .n{font-weight:600;color:var(--accent)}
+  .browz{display:flex;gap:6px;align-items:center;padding:3px 0;font-size:12px;min-width:0}
+  .browz .ic{flex:none}
+  .browz .bt{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
+  .browz .bu{flex:1 1 40%;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--dim)}
+  .brgroup{margin-top:2px}
+  .brgroup>summary{cursor:pointer;color:var(--dim);font-size:12px;padding:3px 0;list-style:none;user-select:none}
+  .brgroup>summary::-webkit-details-marker{display:none}
+  .brgroup>summary::before{content:'▸ ';color:var(--dim)}
+  .brgroup[open]>summary::before{content:'▾ '}
+  .brgroup[open]>summary{color:var(--text)}
+  select{font:inherit;background:var(--panel2);color:var(--text);border:1px solid var(--border);
+    border-radius:6px;padding:5px 8px;font-size:12px}
+  .ws-title{font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .pill{font-size:11px;padding:2px 7px;border-radius:20px;background:var(--panel2);
+    color:var(--dim);border:1px solid var(--border)}
+  .pill.claude{background:rgb(var(--claude-rgb) / .15);color:var(--claude);border-color:rgb(var(--claude-rgb) / .4)}
+  .pill.sel{background:rgb(var(--accent-rgb) / .15);color:var(--accent);border-color:rgb(var(--accent-rgb) / .4)}
+  .pill.live{background:rgb(var(--green-rgb) / .15);color:var(--green);border-color:rgb(var(--green-rgb) / .4)}
+  .pill.done{background:rgb(var(--accent-rgb) / .13);color:var(--accent);border-color:rgb(var(--accent-rgb) / .38)}
+  .browz .b-done{color:var(--accent);flex:none} .browz .b-live{color:var(--green);flex:none}
+  .claudebox{margin-top:10px;background:var(--panel2);border:1px solid var(--border);
+    border-radius:8px;padding:10px}
+  .lbl{color:var(--claude);font-weight:600;margin-bottom:4px}
+  .meta{font-size:12px;color:var(--dim);margin-bottom:8px;display:flex;gap:14px;flex-wrap:wrap;
+    overflow-wrap:anywhere;min-width:0}
+  .cmd{font-family:var(--mono);font-size:12px;background:var(--sunken);border:1px solid var(--border);
+    border-radius:6px;padding:7px 9px;color:var(--text-code);overflow-x:auto;white-space:pre;margin-bottom:6px}
+  .btnrow{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+  button{font:inherit;cursor:pointer;border:1px solid var(--border);background:var(--panel2);
+    color:var(--text);border-radius:6px;padding:5px 10px;font-size:12px}
+  button:hover{border-color:var(--accent)}
+  button.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent);font-weight:600}
+  button.warn{background:var(--claude);color:var(--on-claude);border-color:var(--claude);font-weight:600}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .surfaces{margin-top:8px;font-size:12px;color:var(--dim);min-width:0}
+  .surf{display:flex;gap:6px;align-items:center;padding:2px 0;overflow:hidden;min-width:0}
+  .surf .ic{flex:none}
+  .surf .t{min-width:0;flex:1 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .surf .ic{flex:none}
+  .muted{color:var(--dim)}
+  .mono{font-family:var(--mono);font-size:11px}
+  .snaplist{display:flex;flex-direction:column;gap:6px}
+  .snap{display:flex;gap:12px;align-items:center;background:var(--panel);border:1px solid var(--border);
+    border-radius:8px;padding:9px 12px;cursor:pointer}
+  .snap:hover{border-color:var(--accent)}
+  .snap .when{font-family:var(--mono);font-size:12px;min-width:150px}
+  .snap .cnt{font-size:12px;color:var(--dim);margin-left:auto}
+  .ms{color:var(--gold)}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center}
+  .big{font-size:15px;font-weight:600}
+  a{color:var(--accent)}
+  .empty{color:var(--dim);padding:30px;text-align:center}
+  /* 세션 건강도 */
+  .hsum{display:flex;flex-wrap:wrap;gap:14px;align-items:center;background:var(--panel);
+        border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:13px}
+  .hsum-x{color:var(--dim);font-size:12px}
+  .hsum-h{margin-left:auto;font-size:12px;color:var(--dim)}
+  .hbtn{margin-left:4px;font-size:11px;padding:2px 8px;border-radius:6px;cursor:pointer;
+        background:var(--panel2);color:var(--dim);border:1px solid var(--border)}
+  .hbtn.on{background:rgb(var(--accent-rgb) / .15);color:var(--accent);border-color:rgb(var(--accent-rgb) / .4)}
+  .hnote{font-size:12px;color:var(--dim);line-height:1.6;margin-bottom:12px;padding:0 4px}
+  .hnote code{font-family:var(--mono);font-size:11px;background:var(--panel2);
+              padding:1px 5px;border-radius:4px;color:var(--text)}
+  .hrow{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;background:var(--panel);
+        border:1px solid var(--border);border-left-width:3px;border-radius:6px;
+        padding:8px 12px;margin-bottom:5px;font-size:13px}
+  .hrow.reap{border-left-color:var(--claude)}
+  .hrow.cand{border-left-color:var(--amber)}
+  .hrow.live,.hrow.keep{border-left-color:var(--border)}
+  .hv{font-size:11px;padding:2px 7px;border-radius:20px;border:1px solid var(--border);min-width:52px;text-align:center}
+  .hv.reap{background:rgb(var(--claude-rgb) / .15);color:var(--claude);border-color:rgb(var(--claude-rgb) / .4)}
+  .hv.cand{background:rgb(var(--amber-rgb) / .15);color:var(--amber);border-color:rgb(var(--amber-rgb) / .4)}
+  .hv.live{background:rgb(var(--green-rgb) / .13);color:var(--green);border-color:rgb(var(--green-rgb) / .35)}
+  .hv.keep{color:var(--dim)}
+  .hidle{font-family:var(--mono);font-size:12px;min-width:86px}
+  .hmem{font-family:var(--mono);font-size:12px;color:var(--dim);min-width:58px;text-align:right}
+  .hprev{flex:1;min-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .hmeta{font-size:11px;color:var(--dim);width:100%}
+  /* ---- 레이아웃 복구: 미니맵 + 다단계 선택 ---- */
+  .lwin-head{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--dim);
+    font-weight:600;margin:16px 0 8px}
+  .lw{background:var(--panel);border:1px solid var(--border);border-radius:10px;
+    padding:10px 12px;margin-bottom:10px}
+  .lw-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-weight:600}
+  .lw-head .sub{font-size:12px;color:var(--dim);font-weight:400}
+  .cdot{width:11px;height:11px;border-radius:3px;flex:none;border:1px solid var(--swatch-line)}
+  .big-check{width:16px;height:16px;accent-color:var(--accent);cursor:pointer;flex:none}
+  .mm{display:flex;width:100%;gap:3px;margin:8px 0 2px;padding:4px;
+    border:1px solid var(--border);border-radius:7px;background:var(--sunken);overflow:hidden}
+  .mm-split{display:flex;flex:1;gap:3px;min-width:0;min-height:0}
+  .mm-cell{display:flex;min-width:0;min-height:0}
+  .mm-pane{flex:1;display:flex;flex-wrap:wrap;gap:3px;align-content:flex-start;
+    padding:3px;background:var(--panel2);border-radius:5px;min-width:0;overflow:auto}
+  .mm-chip{display:inline-flex;align-items:center;gap:3px;max-width:100%;height:fit-content;
+    font-size:10px;line-height:1.5;padding:1px 5px;border-radius:4px;cursor:pointer;
+    border:1px solid transparent;opacity:.45;white-space:nowrap;user-select:none}
+  .mm-chip:hover{opacity:.85}
+  .mm-chip.on{opacity:1}
+  .mm-chip .x{max-width:150px;overflow:hidden;text-overflow:ellipsis}
+  .mm-chip.claude{background:rgb(var(--claude-rgb) / .16);color:var(--claude);border-color:rgb(var(--claude-rgb) / .5)}
+  .mm-chip.term{background:rgb(var(--dim-rgb) / .13);color:var(--dim);border-color:var(--border)}
+  .mm-chip.browser{background:rgb(var(--accent-rgb) / .13);color:var(--accent);border-color:rgb(var(--accent-rgb) / .45)}
+  .mm-chip.on.claude{box-shadow:0 0 0 1px var(--claude) inset}
+  .mm-chip.on.term{box-shadow:0 0 0 1px var(--dim) inset}
+  .mm-chip.on.browser{box-shadow:0 0 0 1px var(--accent) inset}
+  .mm-chip.selpanel{outline:1px dashed currentColor;outline-offset:1px}
+  .mm-chip .bdg{font-size:9px}
+  /* 워크스페이스 그룹 */
+  .lgroup{border:1px solid var(--border);border-left:3px solid var(--border);border-radius:10px;
+    margin:8px 0 14px;padding:2px 8px 8px;background:rgb(var(--tint-rgb) / .02)}
+  .lgroup-head{display:flex;align-items:center;gap:8px;padding:7px 4px;font-size:13px;flex-wrap:wrap}
+  .lgroup-head b{font-weight:600}
+  .lgroup .gicon{opacity:.85}
+  .lgroup-body{padding-left:8px}
+  .lgroup-body .lw{margin-bottom:8px}
+</style>
+</head>
+<body>
+<header>
+  <h1><img class="mark" src="/static/cmux-mark.png" alt="" width="128" height="128">cmux <span class="em">관제실</span></h1>
+  <div class="status" id="status"></div>
+  <span class="searchwrap"><span id="searchIcon"></span><input id="search" class="search"
+        placeholder="워크스페이스·탭·세션·URL 검색" oninput="onSearch()" autocomplete="off"></span>
+  <label class="toggle"><input type="checkbox" id="claudeOnly" onchange="onFilter()"> Claude 세션만</label>
+  <button id="editBtn" class="toggle" style="cursor:pointer" onclick="toggleEdit()"
+          title="보드를 끌어서 실제 cmux 배치를 바꿉니다 (편집 중엔 폴링이 멈춥니다)"><span id="editBtnLbl">편집</span></button>
+  <button id="themeBtn" class="iconbtn" type="button"></button>
+  <div class="tabs">
+    <div class="tab" data-tab="now"><span id="nowTabLbl">지금 어디</span></div>
+    <div class="tab active" data-tab="live">현재</div>
+    <div class="tab" data-tab="history">히스토리</div>
+    <div class="tab" data-tab="recovery">복구</div>
+    <div class="tab" data-tab="health">세션 건강도</div>
+  </div>
+</header>
+<main id="main"><div class="empty">불러오는 중…</div></main>
+<div id="toast"></div>
+
+<script src="/static/icons.js"></script>
+<script src="/static/nav.js"></script>
+<script src="/static/edit.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+let CUR = "live";
+let liveTimer = null;
+let claudeOnly = false;         // 필터: Claude 세션 워크스페이스만
+let SEL = new Set();            // 선택된 복원 항목 id
+let ITEMS = {};                 // id → 복원 payload (렌더 시 채움)
+let itemN = 0;
+
+let showDone = false;          // 이미 열림/복구됨 항목도 보기
+function regItem(payload){ const id = 'it'+(itemN++); ITEMS[id] = payload; return id; }
+function onSel(el){ el.checked ? SEL.add(el.dataset.id) : SEL.delete(el.dataset.id); updateSelbar(); }
+function itemDone(x){ return !!(x && (x.live || x.restored)); }   // x=claude 객체 또는 surface
+function keyOf(it){ return it.type==='claude' ? 'c:'+(it.sessionId||'') : 'b:'+(it.url||''); }
+function wsRestorableVisible(ws){
+  let n=0;
+  if(ws.claude && (showDone || !itemDone(ws.claude))) n++;
+  for(const pn of ws.panes||[]) for(const sf of pn.surfaces||[])
+    if(sf.type==='browser' && sf.url && (showDone || !itemDone(sf))) n++;
+  return n;
+}
+function keysFromIds(ids){
+  return ids.map(i=>ITEMS[i]).filter(Boolean).map(keyOf).filter(k=>k!=='c:'&&k!=='b:');
+}
+async function hideItemIds(ids){
+  const keys=[...new Set(keysFromIds(ids))]; if(!keys.length){ toast('숨길 항목이 없습니다'); return; }
+  try{ await post('/api/restored/mark',{keys}); toast(`${keys.length}개 숨김(복구됨 표시)`); renderRecovery(); }
+  catch(e){ toast('실패: '+e.message); }
+}
+function hideSelected(){ if(!SEL.size){ toast('선택된 항목이 없습니다'); return; } hideItemIds([...SEL]); }
+async function clearHidden(){
+  if(!confirm('복구됨(숨김) 표시를 모두 초기화할까요?')) return;
+  try{ await post('/api/restored/clear'); toast('숨김 초기화'); renderRecovery(); }catch(e){ toast('실패: '+e.message); }
+}
+function toggleShowDone(){ showDone = !showDone; renderRecovery(); }
+function updateSelbar(){
+  const b = document.getElementById('selN'); if(b) b.textContent = SEL.size;
+}
+function onFilter(){ liveLastHtml = null; claudeOnly = document.getElementById('claudeOnly').checked;
+  if(CUR==='live') renderLive(); else if(CUR==='recovery') renderRecovery(); }
+function wsHasClaude(w){ return w.workspaces.some(x=>x.claude); }
+
+// ---- 검색 ----
+let searchQ='';
+function onSearch(){
+  liveLastHtml = null;
+  searchQ = (document.getElementById('search').value||'').trim().toLowerCase();
+  if(CUR==='live') renderLive();
+  else if(CUR==='recovery') renderRecovery();
+  else if(CUR==='now' && window.NAV) NAV.setQuery(searchQ);   // '지금 어디'는 nav.js 가 렌더한다
+}
+function inc(s){ return (s||'').toString().toLowerCase().includes(searchQ); }
+function matchSurface(sf){ return inc(sf.title) || inc(sf.url); }
+function wsSelfMatch(ws){
+  return inc(ws.title) || (ws.claude && (inc(ws.claude.label)||inc(ws.claude.cwd)||inc(ws.claude.sessionId)));
+}
+function matchWs(ws){
+  if(!searchQ) return true;
+  if(wsSelfMatch(ws)) return true;
+  for(const pn of ws.panes||[]) for(const sf of pn.surfaces||[]) if(matchSurface(sf)) return true;
+  return false;
+}
+function hl(s){   // 검색어 강조
+  s = esc(s==null?'':s);
+  if(!searchQ) return s;
+  try{ return s.replace(new RegExp('('+searchQ.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','ig'),'<mark>$1</mark>'); }
+  catch(e){ return s; }
+}
+
+// ---------- 유틸 ----------
+async function api(path, opts){
+  const r = await fetch(path, opts);
+  if(!r.ok){ let d; try{d=await r.json()}catch(_){}; throw new Error(d?.detail || r.status); }
+  return r.json();
+}
+function esc(s){ return (s??"").toString().replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function shortId(id){ return id ? id.slice(0,8) : ""; }
+function fmt(ts){ if(!ts) return "—"; const d=new Date(ts*1000);
+  return d.toLocaleString('ko-KR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+function ago(ts){ if(!ts) return ""; const s=Date.now()/1000-ts;
+  if(s<60) return Math.floor(s)+"초 전"; if(s<3600) return Math.floor(s/60)+"분 전";
+  if(s<86400) return Math.floor(s/3600)+"시간 전"; return Math.floor(s/86400)+"일 전"; }
+
+function copyText(text){
+  const done = ()=>toast("복사됨");
+  if(navigator.clipboard && window.isSecureContext){
+    navigator.clipboard.writeText(text).then(done).catch(()=>fallbackCopy(text,done));
+  } else { fallbackCopy(text,done); }
+}
+function fallbackCopy(text, done){
+  const ta=document.createElement('textarea'); ta.value=text;
+  ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta);
+  ta.select(); try{ document.execCommand('copy'); done(); }catch(e){ toast("복사 실패"); }
+  document.body.removeChild(ta);
+}
+// JSON.stringify 결과를 작은따옴표로 감싼 onclick 속성 안에 안전하게 넣기 위한 HTML 이스케이프.
+// (resumeCommand 처럼 값에 작은따옴표가 있으면 속성이 조기 종료돼 핸들러가 깨지는 것 방지)
+function attrJs(v){ return JSON.stringify(v).replace(/&/g,'&amp;').replace(/'/g,'&#39;').replace(/</g,'&lt;'); }
+let toastT=null;
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show");
+  clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove("show"),1600); }
+
+async function post(path, body){
+  return api(path,{method:'POST',headers:{'Content-Type':'application/json'},
+    body: body?JSON.stringify(body):undefined});
+}
+
+// ---------- 렌더: 세션 카드 ----------
+function claudeBox(c, wsId, opts={}){
+  const cmd = c.resumeCommand || `( cd ${JSON.stringify(c.cwd||'~')} && ${c.plainResume} )`;
+  let sel='', hideBtn='';
+  if(opts.selectable){
+    const id = regItem({type:'claude', sessionId:c.sessionId, name:(c.label||'claude'), cwd:(c.cwd||''), command:cmd, ...(opts.wsctx||{})});
+    sel = `<input type="checkbox" class="selbox" data-id="${id}" onchange="onSel(this)" title="복원 선택">`;
+    hideBtn = `<button onclick="hideItemIds(['${id}'])">숨기기</button>`;
+  }
+  const badges = (c.live?'<span class="pill live">이미 열림</span>':'')
+               + (c.restored?'<span class="pill done">복구됨</span>':'');
+  const actions = opts.control ? `
+      <button onclick='doFocus(${attrJs(wsId)})'>포커스</button>
+      ${c.cwd?`<button onclick='doOpen(${attrJs(c.cwd)})'>폴더 열기</button>`:''}` : '';
+  return `<div class="claudebox">
+    <div class="lbl">${sel}${ic('circle',{cls:'claudedot'})} ${hl(c.label||'(제목 없음)')} ${badges}</div>
+    <div class="meta">
+      <span>세션 <code>${shortId(c.sessionId)}</code></span>
+      <span>cwd ${esc(c.cwd||'?')}</span>
+      ${c.lastActivity?`<span>${ago(c.lastActivity)}</span>`:''}
+      ${c.running?`<span style="color:var(--green)">${ic('circle',{cls:'livedot'})} 실행중</span>`:''}
+      ${c.exists===false?'<span style="color:var(--red)">jsonl 없음</span>':''}
+    </div>
+    <div class="cmd">${esc(cmd)}</div>
+    <div class="btnrow">
+      <button class="primary" onclick='copyText(${attrJs(c.plainResume)})'>복사: claude --resume</button>
+      <button onclick='copyText(${attrJs(cmd)})'>복사: cmux 정확한 명령</button>
+      ${actions}${hideBtn}
+    </div>
+  </div>`;
+}
+
+function surfacesHtml(panes, opts={}){
+  let terms=[], brows=[];
+  for(const pn of panes) for(const sf of pn.surfaces){
+    (sf.type==='browser' ? brows : terms).push(sf);
+  }
+  if(opts.searchNarrow){ terms = terms.filter(matchSurface); brows = brows.filter(matchSurface); }
+  let out="";
+  for(const sf of terms){
+    out += `<div class="surf"><span class="ic">▊</span><span class="t">${hl(sf.title||sf.type)}</span></div>`;
+  }
+  if(brows.length){
+    const vis = opts.selectable ? brows.filter(sf=>showDone || !itemDone(sf)) : brows;
+    const rows = vis.map(sf=>{
+      let sel='';
+      if(opts.selectable && sf.url){
+        const id = regItem({type:'browser', url:sf.url, name:(sf.title||sf.url), ...(opts.wsctx||{})});
+        sel = `<input type="checkbox" class="selbox" data-id="${id}" onchange="onSel(this)" title="복원 선택">`;
+      }
+      const u = sf.url||'', t = sf.title||'';
+      const titlePart = (t && t!==u) ? `<span class="bt">${hl(t)}</span>` : '';
+      const badge = sf.live?'<span class="b-live">·열림</span>':(sf.restored?'<span class="b-done">·복구됨</span>':'');
+      return `<div class="browz">${sel}<span class="ic">${ic('globe')}</span>${titlePart}<span class="bu">${hl(u||'browser')}</span>${badge}</div>`;
+    }).join('');
+    if(vis.length) out += `<details class="brgroup" ${searchQ?'open':''}><summary>브라우저 ${vis.length}개${vis.length<brows.length?` (${brows.length-vis.length} 숨김)`:''}</summary>${rows}</details>`;
+  }
+  return out ? `<div class="surfaces">${out}</div>` : "";
+}
+
+function workspaceHtml(ws, opts={}){
+  const has = !!ws.claude;
+  // 복원 항목에 실을 원래 워크스페이스 컨텍스트(그룹화·충실 재구성용)
+  const wsctx = opts.selectable ? {
+    wsKey: (opts.windowRef||'')+'|'+(ws.id||ws.ref||ws.title),
+    wsTitle: ws.title, wsPinned: !!ws.pinned,
+    wsDescription: ws.description||'', windowRef: opts.windowRef||''
+  } : null;
+  // 검색 시: 워크스페이스 자체가 매칭 안 되면 매칭되는 탭만 좁혀 보여줌
+  const o = {...opts, wsctx, searchNarrow: !!(searchQ && !wsSelfMatch(ws))};
+  const claudeVisible = has && (!opts.selectable || showDone || !itemDone(ws.claude));
+  return `<div class="ws ${has?'hasclaude':''}">
+    <div class="ws-title">
+      ${hl(ws.title)}
+      ${ws.selected?'<span class="pill sel">선택됨</span>':''}
+      ${has?'<span class="pill claude">Claude</span>':''}
+      ${ws.pinned?`<span class="pill">${ic('pin',{cls:'pin',title:'고정'})}</span>`:''}
+    </div>
+    ${claudeVisible?claudeBox(ws.claude, ws.id, o):''}
+    ${opts.showSurfaces?surfacesHtml(ws.panes, o):''}
+  </div>`;
+}
+
+/* ===== 창별 컬럼 보드 =====
+   창 = 컬럼, 그 안에 그룹 → 워크스페이스 카드. 카드는 한 줄로 압축하고 클릭하면 펼친다.
+   상태·마지막 활동은 /api/nav(프로세스 기준 정확 매핑)를 조인해 채운다 — /api/state 만으로는
+   "지금 돌고 있나"를 알 수 없다. */
+let NAVIDX = {bySession:{}, bySurface:{}};
+/* 상태 아이콘은 icons.js(STATUS) 한 곳에서만 정한다 — icStatus(state) 로 쓴다. */
+const BSTATL = {running:'작업 중', permission:'권한 대기', waiting:'입력 대기',
+                idle:'유휴', unknown:'판정 불가'};
+
+/* cmux 그룹 아이콘(SF Symbol 이름 → lucide) 매핑도 icons.js(SYMBOL) 한 곳뿐이다.
+   예전엔 이 표가 여기·edit.js·nav.py 에 총 3벌 있었다. */
+
+let ACTWIN = null;   // 지금 활성인 창 ref — 컬럼을 맨 앞으로 보내는 데 쓴다
+function buildNavIndex(nav){
+  ACTWIN = (nav && nav.activeWindowRef) || null;
+  const bySession={}, bySurface={};
+  ((nav&&nav.tabs)||[]).forEach(t=>{
+    if(t.sessionId) bySession[t.sessionId]=t;
+    if(t.surfaceId) bySurface[String(t.surfaceId).toUpperCase()]=t;
+  });
+  return {bySession, bySurface};
+}
+/* 워크스페이스 → 그 안의 claude 탭 상태. 세션ID 우선, 없으면 터미널 surface 로 찾는다. */
+function navFor(ws){
+  const sid = ws.claude && ws.claude.sessionId;
+  if(sid && NAVIDX.bySession[sid]) return NAVIDX.bySession[sid];
+  for(const pn of ws.panes||[]) for(const sf of pn.surfaces||[]){
+    const hit = NAVIDX.bySurface[String(sf.id||'').toUpperCase()];
+    if(hit) return hit;
+  }
+  return null;
+}
+/* cmux 가 탭/워크스페이스 제목 앞에 붙이는 상태 마커(◐ 스피너 / ✳ 유휴)는 카드 왼쪽 아이콘과
+   중복이라 떼어낸다 — 같은 정보가 두 번 보이면 오히려 읽기 어렵다. */
+function bTitle(t){
+  return String(t||'').replace(/^[◐◑◒◓◔◕✳✻✽✢·\s]+/, '').trim() || '(제목 없음)';
+}
+function bAge(ts){
+  if(!ts) return '—';
+  const s = Date.now()/1000 - ts;
+  if(s<60) return `${Math.max(0,Math.floor(s))}초`;
+  if(s<3600) return `${Math.floor(s/60)}분`;
+  if(s<86400) return `${Math.floor(s/3600)}시간`;
+  return `${Math.floor(s/86400)}일`;
+}
+function bCard(ws, opts){
+  const nv = navFor(ws);
+  const c  = ws.claude;
+  const st = nv ? nv.status : (c ? 'idle' : 'noclaude');
+  const act = (nv && nv.lastActivity) || (c && c.lastActivity) || null;
+  const hot = act && (Date.now()/1000-act) < 180 ? ' hot' : '';
+  const tabref = nv ? (nv.tabRef||'') : '';
+  const brow = (ws.panes||[]).flatMap(p=>p.surfaces||[]).filter(x=>x.type==='browser');
+  const term = (ws.panes||[]).flatMap(p=>p.surfaces||[]).filter(x=>x.type!=='browser');
+  const id = 'bc'+(bcN++);
+  BCARD[id] = {ws, nv};
+  const wsc = (nv && nv.workspaceColor) || ws.color || null;
+  return `<div class="bcard ${st}${nv&&nv.isActiveTab?' here':''}" id="${id}" data-wsid="${esc(ws.id||'')}"
+      ${wsc?`style="--wsc:${esc(wsc)}"`:''}
+      onclick="bCardClick(event,'${id}')">
+    <div class="brow">
+      <span class="bic">${st==='none'?ic('circle-dot',{cls:'st-none',title:'claude 없음'}):icStatus(st, BSTATL[st])}</span>
+      <span class="btitle">${hl(bTitle(ws.title))}</span>
+      <span class="bage${hot}">${act?bAge(act):(c?'—':'')}</span>
+    </div>
+    <div class="bmeta">
+      ${tabref?`<span class="btag">${esc(tabref)}</span>`:''}
+      ${ws.selected?`<span class="btag on" title="${esc('이 창을 앞으로 가져오면 바로 이 탭이 보입니다.\ncmux 는 창 하나가 워크스페이스 하나만 화면에 띄웁니다 — 배지가 없는 탭은\n같은 창에 있어도 사이드바에서 한 번 더 눌러야 나옵니다.')}">보임</span>`:''}
+      ${ws.pinned?`<span class="btag">${ic('pin',{cls:'pin',title:'고정'})}</span>`:''}
+      ${(ws.panes||[]).length>1?`<span class="btag">분할 ${ws.panes.length}</span>`:''}
+      ${brow.length?`<span class="btag">${ic('globe')} ${brow.length}</span>`:''}
+      ${(!c && !nv)?'<span class="btag">claude 없음</span>':''}
+      ${(!c && nv)?'<span class="btag">새 세션</span>':''}
+      ${(nv && nv.wokenBySystem)?`<span class="btag wake" title="사람이 시킨 게 아니라 백그라운드 알림이 세션을 깨웠습니다${
+        nv.wakeKind?` (${esc(nv.wakeKind)})`:''}">${ic('bot')} 자동</span>`:''}
+    </div>
+    <div class="bdetail">${bDetail(ws, nv, id, opts)}</div>
+  </div>`;
+}
+function bDetail(ws, nv, id, opts){
+  const c = ws.claude;
+  const L = [];
+  if(nv && nv.lastPromptText) L.push(`<div class="bq">“${esc(nv.lastPromptText)}”</div>`);
+  if(nv) L.push(`<div class="bk">${esc(BSTATL[nv.status]||nv.status)} · ${esc(nv.statusSource||'')}</div>`);
+  if(nv && nv.askText)
+    L.push(`<div class="bk ask">${ic('circle-question-mark')}<span>${esc(nv.askText)}</span></div>`);
+  if(nv && /추정|없음|버림/.test(nv.sessionIdSource||''))
+    L.push(`<div class="bk weak">${ic('triangle-alert')} 세션 판별 근거 약함 — ${esc(nv.sessionIdSource)}</div>`);
+  if(nv && nv.titleRenamedByUser)
+    L.push(`<div class="bk rename">${ic('triangle-alert')} 패널 이름을 직접 바꿔 cmux 상태 마커가 없습니다 — 대화 기록으로 판정 중</div>`);
+  if(nv && nv.wokenBySystem)
+    L.push(`<div class="bk wake">${ic('bot')} 사람이 아니라 <b>${esc(nv.wakeKind||'백그라운드 알림')}</b>${josa(nv.wakeKind||'백그라운드 알림', '이/가')} 세션을 깨웠습니다
+      · 사람이 시킨 마지막 활동 ${nv.lastHumanAt?esc(bAge(nv.lastHumanAt)+' 전'):'기록 범위 밖'}</div>`);
+  if(c) L.push(`<div class="bk">세션 ${esc(shortId(c.sessionId))} · ${esc(c.cwd||'')}</div>`);
+  if(ws.description) L.push(`<div class="bk">${esc(ws.description)}</div>`);
+  const surf = (ws.panes||[]).flatMap(p=>p.surfaces||[]);
+  if(surf.length) L.push(surf.map(sf=>`<div class="bsurf">${sf.type==='browser'?ic('globe'):ic('square-terminal')}
+      <span class="bt">${esc(sf.title||sf.url||sf.ref||'')}</span></div>`).join(''));
+  const btns=[];
+  if(nv && nv.surfaceId) btns.push(`<button onclick="bFocus('${id}',event)">이 탭으로 →</button>`);
+  if(c && c.plainResume) btns.push(`<button onclick="copyText(${attrJs(c.plainResume)},event)">복사: --resume</button>`);
+  if(c && c.cwd) btns.push(`<button onclick="openPath(${attrJs(c.cwd)},event)">폴더 열기</button>`);
+  // 고정 토글은 **라이브 보드에서만**. 히스토리는 지나간 스냅샷이라 그 워크스페이스 id 로
+  // 지금의 cmux 를 건드리면 화면과 다른 대상을 고정하게 된다.
+  if(opts && opts.control && ws.id)
+    btns.push(`<button onclick="togglePin('${esc(ws.id)}',${ws.pinned?'true':'false'},event)">${
+      ic('pin',{cls:'pin'}) + (ws.pinned ? ' 고정 해제' : ' 고정')}</button>`);
+  if(btns.length) L.push(`<div class="bbtns">${btns.join('')}</div>`);
+  return L.join('') || '<div class="bk">표시할 상세가 없습니다.</div>';
+}
+let bcN = 0, BCARD = {};
+function bToggle(id){ const el=document.getElementById(id); if(el) el.classList.toggle('open'); }
+/* 카드는 **어디를 눌러도** 펼쳐진다. 예전엔 제목 줄(.brow)에만 걸려 있어 바로 아래 배지 줄을
+   누르면 아무 반응이 없었다 — 같은 카드인데 자리에 따라 되고 안 되니 고장으로 읽힌다.
+   예외는 둘 — ①펼친 상세 안(버튼·경로): 접히면 버튼을 못 누른다. 버튼마다 stopPropagation 을
+   다는 대신 상세를 통째로 비켜 간다(`복사: --resume` 은 event 를 받고도 안 쓰고 있었다).
+   ②글자를 끌어 선택하는 중: 선택을 끝낸 클릭에 접히면 복사할 수가 없다. */
+function bCardClick(ev, id){
+  if(ev.target.closest('.bdetail')) return;
+  if(hasSelectionIn(document.getElementById(id))) return;
+  bToggle(id);
+}
+/* 이 카드 **안에서** 실제로 글자가 선택돼 있나. 페이지 다른 곳의 선택까지 세면 엉뚱한 클릭이
+   막히고, 아예 안 세면 상세에서 끌어 선택한 직후 클릭에 카드가 접힌다. */
+function hasSelectionIn(el){
+  const s = window.getSelection && window.getSelection();
+  if(!s || s.isCollapsed || !el) return false;
+  return el.contains(s.anchorNode) || el.contains(s.focusNode);
+}
+async function bFocus(id, ev){
+  if(ev) ev.stopPropagation();
+  const d = BCARD[id]; if(!d || !d.nv) return;
+  try{
+    const r = await fetch('/api/cmux/focus', {method:'POST', headers:{'Content-Type':'application/json'},
+      keepalive:true,
+      body: JSON.stringify({surface:d.nv.surfaceId, window:d.nv.windowId||null, activate:true})});
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(j.detail||r.status);
+    toast(j.verified===false ? `이동 안 됨 — 지금 활성: ${j.activeNow||'?'}` : `이동: ${d.ws.title||''}`);
+  }catch(e){ toast(`이동 실패: ${e.message}`); }
+}
+function openPath(p, ev){ if(ev) ev.stopPropagation(); post('/api/cmux/open', {path:p}).catch(()=>{}); }
+
+/* 워크스페이스 고정/해제. 서버에는 **토글이 아니라 원하는 최종 상태**를 보낸다 — 화면이 든
+   상태가 낡았으면 토글은 정확히 반대로 뒤집힌다. 서버가 실제 결과를 되돌려 주므로
+   반영이 안 됐으면 그대로 드러낸다. */
+async function togglePin(wsid, pinned, ev){
+  if(ev) ev.stopPropagation();
+  const want = !pinned;
+  try{
+    const j = await post('/api/cmux/pin', {workspace: wsid, pinned: want});
+    if(j.verified === false)
+      toast(`고정 상태가 반영되지 않았습니다 — 지금 ${j.pinned ? '고정됨' : '해제됨'}`);
+    else toast(want ? '고정했습니다' : '고정을 해제했습니다');
+  }catch(e){ toast(`고정 변경 실패: ${e.message}`); }
+  liveLastHtml = null;
+  if(CUR === 'live') renderLive();
+}
+
+function bGroupBlock(g, members, opts){
+  const color = (g && g.color) || 'var(--group-fallback)';
+  const gid = 'bg'+(bcN++);
+  const badge = g && g.pinned ? ' ' + ic('pin',{cls:'pin',title:'고정'}) : '';
+  return `<div class="bgroup" id="${gid}" style="border-left-color:${esc(color)}">
+    <div class="bgroup-head" onclick="document.getElementById('${gid}').classList.toggle('collapsed')">
+      <span class="caret">▾</span><span class="gic">${icGroup(g&&g.icon)}</span>
+      <b>${hl((g&&g.name)||'(그룹)')}${badge}</b>
+      <span style="margin-left:auto">${members.length}</span>
+    </div>
+    <div class="bgroup-body">${members.map(ws=>bCard(ws,opts)).join('')}</div>
+  </div>`;
+}
+/* 폴링 재렌더가 가로 스크롤을 원점으로 되돌리고 펼친 카드를 접는 문제를 막는다.
+   ①내용이 같으면 DOM 을 아예 건드리지 않고 ②바꿀 때만 스크롤 위치·펼침 상태를 복원한다. */
+let liveLastHtml = null;
+function paintBoard(el, html){
+  if(html === liveLastHtml && el.querySelector('.board')) return;
+  const prev = el.querySelector('.board');
+  const sx = prev ? prev.scrollLeft : 0;
+  const opened = new Set([...el.querySelectorAll('.bcard.open[data-wsid]')].map(e=>e.dataset.wsid));
+  el.innerHTML = html;
+  liveLastHtml = html;
+  const nb = el.querySelector('.board');
+  if(nb && sx) nb.scrollLeft = sx;
+  opened.forEach(id=>{
+    const c = el.querySelector(`.bcard[data-wsid="${CSS.escape(id)}"]`);
+    if(c) c.classList.add('open');
+  });
+}
+
+function boardHtml(windows, opts={}){
+  bcN = 0; BCARD = {};
+  const cols = (windows||[]).map(w=>{
+    let wss = w.workspaces||[];
+    if(claudeOnly) wss = wss.filter(x=>x.claude);
+    if(searchQ)    wss = wss.filter(matchWs);
+    return {w, wss};
+  }).filter(x=>x.wss.length);
+  // 보고 있는 창을 맨 앞으로, 나머지는 창 번호순(위치가 예측 가능하도록)
+  cols.sort((a,b)=> (b.w.ref===ACTWIN) - (a.w.ref===ACTWIN) || (a.w.index??99)-(b.w.index??99));
+  if(!cols.length) return `<div class="empty">${
+    searchQ ? `“${esc(searchQ)}” 검색 결과가 없습니다.`
+            : (claudeOnly?'Claude 세션이 있는 워크스페이스가 없습니다.':'표시할 창이 없습니다.')}</div>`;
+  return `<div class="board" id="board">` + cols.map(({w, wss})=>{
+    // 그룹 헤더(anchor)는 감추고, 연속된 같은 그룹을 한 블록으로 묶는다
+    const blocks=[]; let cur=null;
+    wss.forEach(ws=>{
+      const info = LIVEGRP[ws.id];
+      if(info && info.anchor){ cur=null; return; }
+      const g = info && info.g;
+      if(g){
+        if(cur && cur.g && cur.g.id===g.id) cur.members.push(ws);
+        else { cur={g, members:[ws]}; blocks.push(cur); }
+      } else {
+        if(cur && !cur.g) cur.members.push(ws);
+        else { cur={g:null, members:[ws]}; blocks.push(cur); }
+      }
+    });
+    const counts = {};
+    wss.forEach(ws=>{ const nv=navFor(ws); const k=nv?nv.status:(ws.claude?'idle':'none');
+                      counts[k]=(counts[k]||0)+1; });
+    const dots = ['permission','running','waiting','idle']
+      .filter(k=>counts[k]).map(k=>`<span class="wd">${icStatus(k, BSTATL[k])}${counts[k]}</span>`).join(' ');
+    const nC = wss.filter(x=>x.claude).length;
+    return `<div class="bwin${w.ref===ACTWIN?' here':''}">
+      <div class="bwin-head">
+        <span class="wt">${ic('app-window')} ${esc(w.title||('창 '+((w.index||0)+1)))}${
+          w.ref===ACTWIN?' <span class="btag on">활성</span>':''}</span>
+        <span class="wdots">${dots}</span>
+        <span class="wn">WS ${wss.length}${nC?` · C ${nC}`:''}</span>
+      </div>
+      ${blocks.map(b=> b.g ? bGroupBlock(b.g, b.members, opts)
+                           : `<div class="bungrouped">${b.members.map(ws=>bCard(ws,opts)).join('')}</div>`).join('')}
+    </div>`;
+  }).join('') + `</div>`;
+}
+
+function windowsHtml(windows, opts={}){
+  let wins = (windows||[]).map(w=>{
+    let wss = w.workspaces;
+    if(claudeOnly) wss = wss.filter(x=>x.claude);
+    if(opts.selectable) wss = wss.filter(ws=>wsRestorableVisible(ws)>0);
+    if(searchQ) wss = wss.filter(matchWs);
+    return {w, wss};
+  }).filter(x=>x.wss.length);
+  if(!wins.length) return `<div class="empty">${
+    searchQ ? `“${esc(searchQ)}” 검색 결과가 없습니다.`
+    : opts.selectable ? '복원할 항목이 없습니다 — 모두 이미 열려있거나 복구됨입니다. (선택바의 “숨긴 항목 보기”로 확인)'
+    : (claudeOnly?'Claude 세션이 있는 워크스페이스가 없습니다.':'표시할 창이 없습니다.')}</div>`;
+  return wins.map(({w, wss})=>{
+    const nSess = w.workspaces.filter(x=>x.claude).length;
+    return `<div class="win">
+      <div class="win-head">${ic('app-window')} ${esc(w.title)}
+        <span class="muted">· 워크스페이스 ${w.workspaces.length} · Claude ${nSess}${
+          searchQ?` · 검색 ${wss.length}`:''}</span></div>
+      ${opts.grouped ? liveGroupedHtml(wss, {...opts, windowRef:w.ref})
+                     : wss.map(ws=>workspaceHtml(ws,{...opts, windowRef:w.ref})).join('')}
+    </div>`;
+  }).join('');
+}
+
+// ---- 현재/히스토리 탭 그룹 표시(워크스페이스 UUID로 layoutWindows 그룹 조인) ----
+let LIVEGRP = {};   // workspaceUUID → {g:그룹정의, anchor:bool}
+function buildLiveGroupMap(lw){
+  const map={};
+  (lw||[]).forEach(w=>{
+    const gById={}; (w.groups||[]).forEach(g=>gById[g.id]=g);
+    (w.workspaces||[]).forEach(ws=>{
+      if(!ws.workspaceId) return;
+      map[ws.workspaceId] = {g:(ws.groupId && gById[ws.groupId]) || null, anchor:!!ws.isGroupAnchor};
+    });
+  });
+  return map;
+}
+function liveGroupedHtml(wss, opts){
+  // 연속된 같은 그룹 워크스페이스를 그룹 헤더로 묶고, "Group N" 자동 헤더는 숨김
+  const blocks=[]; let cur=null;
+  wss.forEach(ws=>{
+    const info = LIVEGRP[ws.id];
+    if(info && info.anchor){ cur=null; return; }
+    const g = info && info.g;
+    if(g){
+      if(cur && cur.g && cur.g.id===g.id){ cur.members.push(ws); }
+      else { cur={g, members:[ws]}; blocks.push(cur); }
+    } else { cur=null; blocks.push({ws}); }
+  });
+  return blocks.map(b=> b.g ? liveGroupBlock(b.g, b.members, opts)
+                            : workspaceHtml(b.ws, opts)).join('');
+}
+function liveGroupBlock(g, members, opts){
+  const color=g.color||'var(--group-fallback)';
+  const badges=(g.pinned?`<span class="pill">${ic('pin',{cls:'pin'})} 고정</span>`:'')+(g.collapsed?'<span class="pill">접힘</span>':'');
+  return `<div class="lgroup" style="border-left-color:${esc(color)}">
+    <div class="lgroup-head"><span class="gicon">${ic('folder')}</span><b>${hl(g.name||'(그룹)')}</b> ${badges}
+      <span class="muted">· ${members.length}개 워크스페이스</span></div>
+    <div class="lgroup-body">${members.map(ws=>workspaceHtml(ws,opts)).join('')}</div>
+  </div>`;
+}
+
+// ---------- 탭: 현재 ----------
+async function renderLive(){
+  try{
+    // 구조(/api/state)와 상태(/api/nav)를 함께 받아 조인한다 — 구조만으로는 "지금 돌고 있나"를 모른다.
+    const [d, nav] = await Promise.all([api('/api/state'), api('/api/nav').catch(()=>null)]);
+    if(CUR!=='live') return;
+    LIVEGRP = buildLiveGroupMap(d.layoutWindows);
+    NAVIDX = buildNavIndex(nav);
+    paintBoard($("#main"), boardHtml(d.windows, {showSurfaces:true, control:true}));
+  }catch(e){
+    $("#main").innerHTML = `<div class="empty">cmux 상태를 읽을 수 없습니다.<br><span class="muted">${esc(e.message)}</span></div>`;
+  }
+}
+
+// ---------- 탭: 세션 건강도 ----------
+// 실행 중인 claude 프로세스가 "얼마나 조용한지"를 본다. 판정 규칙은 서버가
+// claude-session-reaper 를 그대로 import 해서 쓰므로 여기서 임계값을 복제하지 않는다.
+// 종료 버튼은 두지 않는다 — 파괴적 작업은 사람이 터미널에서 목록 보고 실행.
+let HEALTH_HOURS = 24;
+async function renderHealth(){
+  let d;
+  try{ d = await api('/api/sessions/health?hours='+HEALTH_HOURS); }
+  catch(e){ $("#main").innerHTML = `<div class="empty">세션 상태를 읽을 수 없습니다.<br><span class="muted">${esc(e.message)}</span></div>`; return; }
+  if(CUR!=='health') return;
+  if(d.available===false){ $("#main").innerHTML = `<div class="empty">${esc(d.reason)}</div>`; return; }
+
+  const s = d.summary;
+  const VERDICT = {
+    reap:      {label:'종료대상', cls:'reap'},
+    candidate: {label:'후보',     cls:'cand'},
+    active:    {label:'활성',     cls:'live'},
+    keep:      {label:'보호',     cls:'keep'},
+  };
+  const hoursBtn = h => `<button class="hbtn${HEALTH_HOURS===h?' on':''}" onclick="HEALTH_HOURS=${h};renderHealth()">${h}h</button>`;
+
+  const rows = d.sessions.map(x=>{
+    const v = VERDICT[x.verdict] || VERDICT.active;
+    const idle = x.ttyIdleHours==null ? '—'
+      : (x.ttyIdleHours>=24 ? (x.ttyIdleHours/24).toFixed(1)+'일' : x.ttyIdleHours.toFixed(1)+'시간');
+    const sess = x.sessionIdleHours==null ? '<span class="muted">세션ID 미상</span>'
+      : `마지막 대화 ${x.sessionIdleHours>=24?(x.sessionIdleHours/24).toFixed(1)+'일':x.sessionIdleHours.toFixed(1)+'시간'} 전`;
+    const res = x.sessionId
+      ? `<span class="pill${x.resumeRegistered?' live':''}">${x.resumeRegistered?'resume 등록됨':'resume 가능'}</span>`
+      : `<span class="pill">목록에서 선택 필요</span>`;
+    return `<div class="hrow ${v.cls}">
+      <span class="hv ${v.cls}">${v.label}</span>
+      <span class="hidle">${idle} 조용</span>
+      <span class="hmem">${x.rssMb}MB</span>
+      <span class="hprev">${esc(x.preview) || '<span class="muted">(미리보기 없음)</span>'}</span>
+      <span class="hmeta">${sess} · ${res} · <span class="muted">${esc(x.tty)}</span></span>
+    </div>`;
+  }).join('');
+
+  $("#main").innerHTML = `
+    <div class="hsum">
+      <div><b>${s.total}</b>개 실행 중 · <b>${s.totalGb} GB</b></div>
+      <div class="hsum-x"><span class="hv reap">종료대상</span> ${s.reap}개 · ${s.reapGb} GB</div>
+      <div class="hsum-x"><span class="hv cand">후보</span> ${s.candidate}개 · ${s.candidateGb} GB</div>
+      <div class="hsum-x"><span class="hv live">활성</span> ${s.active}개</div>
+      <div class="hsum-h">임계 ${hoursBtn(24)}${hoursBtn(48)}${hoursBtn(72)}</div>
+    </div>
+    <div class="hnote">판정 기준은 <b>제어 터미널이 조용한 시간</b>입니다(세션 인덱스보다 보수적이고,
+      세션ID 인자가 없는 프로세스까지 커버). 종료해도 cmux 워크스페이스·레이아웃·색은 남고,
+      대화는 jsonl 에 이미 저장돼 있습니다.<br>
+      종료는 목록을 확인한 뒤 터미널에서: <code>${esc(d.reapCommand)}</code> → 확인 후 <code>--yes</code></div>
+    ${rows || '<div class="empty">실행 중인 claude 세션이 없습니다.</div>'}`;
+}
+
+// ---------- 탭: 히스토리 ----------
+async function renderHistory(){
+  const d = await api('/api/snapshots?limit=300');
+  if(CUR!=='history') return;
+  if(!d.snapshots.length){ $("#main").innerHTML='<div class="empty">스냅샷이 아직 없습니다.</div>'; return; }
+  const rows = d.snapshots.map(s=>`
+    <div class="snap" onclick='openSnap(${s.id})'>
+      <span class="when">${fmt(s.first_ts)}${s.is_milestone?' <span class="ms">★</span>':''}</span>
+      <span class="cnt">창 ${s.n_windows} · WS ${s.n_workspaces} · Claude ${s.n_sessions} · 유지 ${ago(s.first_ts)}~${fmt(s.last_ts).slice(-5)}</span>
+    </div>`).join('');
+  $("#main").innerHTML = `<div class="toolbar"><span class="big">스냅샷 이력</span>
+    <span class="muted">${d.snapshots.length}개 · 클릭하면 상세</span></div>
+    <div class="snaplist">${rows}</div><div id="snapdetail"></div>`;
+}
+async function openSnap(id){
+  const s = await api('/api/snapshots/'+id);
+  const norm = s.normalized;
+  LIVEGRP = buildLiveGroupMap(norm.layoutWindows);   // 그룹 헤더 표시용
+  $("#snapdetail").innerHTML = `<div class="toolbar" style="margin-top:18px">
+      <span class="big">스냅샷 #${id}</span>
+      <span class="muted">${fmt(norm.capturedAt)}</span>
+      <button onclick='diffLive(${id})'>현재와 비교</button>
+      <button onclick='document.getElementById("snapdetail").innerHTML=""'>닫기</button>
+    </div>
+    <div id="diffbox"></div>
+    ${(NAVIDX={bySession:{},bySurface:{}}, boardHtml(norm.windows,{showSurfaces:false,control:false}))}`;
+  $("#snapdetail").scrollIntoView({behavior:'smooth'});
+}
+async function diffLive(id){
+  const d = await api(`/api/diff?a=${id}`);
+  const list = (arr,label,color)=> arr.length? `<div style="margin:6px 0"><b style="color:${color}">${label} (${arr.length})</b>${
+      arr.map(s=>`<div class="muted" style="margin-left:10px">• ${esc(s.workspaceTitle)} — ${esc(s.label||'')} <code>${shortId(s.sessionId)}</code></div>`).join('')
+    }</div>` : '';
+  $("#diffbox").innerHTML = `<div class="claudebox">
+    <div>스냅샷 #${id} → ${esc(d.bLabel)} 비교</div>
+    ${list(d.removed,'사라진 세션',"var(--red)")}
+    ${list(d.added,'새로 생긴 세션',"var(--green)")}
+    ${(!d.removed.length&&!d.added.length)?'<div class="muted">세션 변화 없음</div>':''}
+  </div>`;
+}
+
+// ---------- 탭: 복구 (레이아웃 미니맵 + 다단계 선택) ----------
+let recSnapId = null;
+// 스냅샷 피커 페이지네이션 — 보존이 계층적이라 옛 스냅샷도 계속 남는다(수천~수만 건).
+// 드롭다운에 전부 넣으면 DOM 이 감당 못 하므로 한 페이지씩 싣고 이동/날짜점프로 접근한다.
+let recOffset = 0, recTotal = 0, recMsOnly = false;
+const REC_PAGE = 200;
+let LSEL = {};        // wsId -> Set(panelId) : 선택된 탭
+let LWS = {};         // wsId -> 워크스페이스 객체(복원 payload 조회용)
+let CURLW = [];       // 현재 스냅샷의 layoutWindows
+let autoRunClaude = true;   // 기본 ON: 복원=claude 부활(레이아웃 command 로 생성 시 실행, 상한 12)
+
+function pKind(p){ return p.sessionId ? 'claude' : (p.type==='browser' ? 'browser' : 'term'); }
+function pIcon(k){ return k==='claude' ? ic('circle',{cls:'claudedot'})
+                    : (k==='browser' ? ic('globe') : ic('square-terminal')); }
+function pLabel(p){ return p.label || p.title || (p.url ? p.url.replace(/^https?:\/\//,'') : '(무제)'); }
+function lselSet(wsId){ return LSEL[wsId] || (LSEL[wsId]=new Set()); }
+function lselCount(){ let n=0; for(const k in LSEL) n+=LSEL[k].size; return n; }
+function updateLselBar(){ const el=$("#lselN"); if(el) el.textContent=lselCount(); }
+
+function chipHtml(p, pid, wsId, isSelTab){
+  const k = pKind(p);
+  const on = LSEL[wsId] && LSEL[wsId].has(pid);
+  const badge = p.live ? '<span class="bdg" style="color:var(--green)">●</span>'
+              : (p.restored ? '<span class="bdg" style="color:var(--accent)">✓</span>' : '');
+  return `<span class="mm-chip ${k}${on?' on':''}${isSelTab?' selpanel':''}"
+     data-ws="${esc(wsId)}" data-pid="${esc(pid)}" onclick="toggleTab(this)"
+     title="${esc(pLabel(p))}">${pIcon(k)}<span class="x">${hl(pLabel(p))}</span>${badge}</span>`;
+}
+function miniMap(node, panels, wsId){
+  if(!node) return '';
+  if(node.type==='pane'){
+    const chips=(node.panelIds||[]).map(pid=>{
+      const p=panels[pid]; if(!p) return '';
+      return chipHtml(p, pid, wsId, pid===node.selectedPanelId);
+    }).join('');
+    return `<div class="mm-pane">${chips||'<span class="muted" style="font-size:10px">빈 페인</span>'}</div>`;
+  }
+  const dir = node.orientation==='vertical' ? 'column' : 'row';
+  const dp = Math.max(.12, Math.min(.88, node.dividerPosition||0.5));
+  return `<div class="mm-split" style="flex-direction:${dir}">
+     <div class="mm-cell" style="flex:${dp}">${miniMap(node.first,panels,wsId)}</div>
+     <div class="mm-cell" style="flex:${(1-dp).toFixed(3)}">${miniMap(node.second,panels,wsId)}</div>
+   </div>`;
+}
+function mmHeight(nPanels){ return Math.min(240, Math.max(64, 44 + nPanels*10)); }
+function layoutWsCard(ws){
+  LWS[ws.id]=ws;
+  const vals=Object.values(ws.panels);
+  const nP=vals.length, nB=vals.filter(p=>p.type==='browser').length;
+  const nC=vals.filter(p=>p.sessionId).length;
+  const color=ws.color||'var(--group-fallback)';
+  return `<div class="lw" data-wsid="${esc(ws.id)}">
+    <div class="lw-head">
+      <input type="checkbox" class="big-check ws-check" data-wsid="${esc(ws.id)}" onclick="toggleWs(this)" title="이 워크스페이스 전체 선택">
+      <span class="cdot" style="background:${esc(color)}"></span>
+      ${hl(ws.title)}
+      ${ws.pinned?`<span class="pill">${ic('pin',{cls:'pin',title:'고정'})}</span>`:''}
+      ${nC?`<span class="pill claude">Claude ${nC}</span>`:''}
+      <span class="sub">· ${nP}탭 (터미널 ${nP-nB-nC>=0?nP-nB-nC:0}·claude ${nC}·브라우저 ${nB})${ws.cwd?` · <span class="mono">${esc(ws.cwd)}</span>`:''}</span>
+    </div>
+    ${ws.layout?`<div class="mm" style="height:${mmHeight(nP)}px">${miniMap(ws.layout, ws.panels, ws.id)}</div>`:''}
+  </div>`;
+}
+function matchLayoutWs(ws){
+  if(!searchQ) return true;
+  if(inc(ws.title)) return true;
+  for(const pid in ws.panels){ const p=ws.panels[pid];
+    if(inc(p.title)||inc(p.url)||inc(p.label)||inc(p.sessionId)) return true; }
+  return false;
+}
+async function renderRecovery(){
+  LSEL={}; LWS={};
+  let snaps=[], miles=[];
+  try{
+    const r = await api(`/api/snapshots?limit=${REC_PAGE}&offset=${recOffset}`+(recMsOnly?'&milestones=1':''));
+    snaps=r.snapshots; recTotal=r.total||0; recOffset=r.offset||0;
+  }catch(e){}
+  try{ miles=(await api('/api/snapshots?milestones=1&limit=100')).snapshots; }catch(e){}
+  // 첫 진입 시 가장 최근 마일스톤(전체 레이아웃 복구점)으로 기본 선택 — 최신(빈) 스냅샷 대신.
+  if(!recSnapId && miles.length) recSnapId = miles[0].id;
+  let d;
+  try{ d=await api('/api/recovery'+(recSnapId?`?snapshotId=${recSnapId}`:'')); }
+  catch(e){ $("#main").innerHTML='<div class="empty">복구할 스냅샷이 없습니다.</div>'; return; }
+  if(CUR!=='recovery') return;
+  recSnapId=d.snapshotId; CURLW=d.layoutWindows||[];
+  let tC=0,tT=0,tB=0,tWs=0;
+  CURLW.forEach(w=>w.workspaces.forEach(ws=>{tWs++;Object.values(ws.panels).forEach(p=>{
+    if(p.type==='browser')tB++; else if(p.sessionId)tC++; else tT++; });}));
+  const opt=s=>`<option value="${s.id}" ${s.id==d.snapshotId?'selected':''}>${s.is_milestone?'★ ':''}#${s.id} · ${fmt(s.first_ts)} · 창${s.n_windows}·Claude${s.n_sessions}</option>`;
+  // 선택된 스냅샷이 현재 페이지 밖이면 맨 위에 따로 실어 선택 상태가 사라지지 않게 한다.
+  const inPage = snaps.some(s=>s.id==d.snapshotId);
+  const from = recTotal ? recOffset+1 : 0, to = Math.min(recOffset+REC_PAGE, recTotal);
+  const picker=`<select onchange="recSnapId=this.value; renderRecovery()">`+
+    (inPage?'':`<optgroup label="현재 선택"><option value="${d.snapshotId}" selected>#${d.snapshotId} · ${fmt(d.capturedAt)}</option></optgroup>`)+
+    `<optgroup label="${recMsOnly?'★ 마일스톤':'스냅샷'} ${from.toLocaleString()}–${to.toLocaleString()} / ${recTotal.toLocaleString()}">${snaps.map(opt).join('')}</optgroup>`+
+    `</select>`;
+  const pager=`<span class="pager">
+      <button ${recOffset<=0?'disabled':''} onclick="recPage(-1)" title="더 최근">◀ 이전</button>
+      <span class="muted">${from.toLocaleString()}–${to.toLocaleString()} / ${recTotal.toLocaleString()}</span>
+      <button ${to>=recTotal?'disabled':''} onclick="recPage(1)" title="더 오래된">다음 ▶</button>
+      <span class="muted">날짜로 이동</span>
+      <input type="date" id="recDate" onchange="recJumpDate(this.value)">
+      <label class="toggle"><input type="checkbox" ${recMsOnly?'checked':''} onchange="recToggleMs(this.checked)"> ★ 마일스톤만</label>
+    </span>`;
+  const ctlBanner = CONTROL ? '' :
+    `<div class="claudebox" style="border-color:var(--amber);margin-bottom:12px">
+       <b style="color:var(--amber)">소켓 제어 비활성</b> — 복원 버튼은 cmux 실행(비번 모드) 후 켜집니다. cmux 창의 <code>⌘⇧O</code>로도 복원 가능.</div>`;
+  // cmux 가 세션 JSON 에 기록하지 않은 창 경고.
+  // 2026-08-04: 창 하나가 하루 종일 네이티브에 안 남은 채 재부팅으로 소실됐는데도 대시보드는
+  // 조용히 "창 2개"만 보여줬다. 이제 그 창도 복원 대상으로 세우고, 무엇이 다른지 명시한다.
+  const sc = d.sourceCheck || {};
+  const mmBanner = !sc.mismatch ? '' :
+    `<div class="claudebox" style="border-color:var(--amber);margin-bottom:12px">
+       <b style="color:var(--amber)">⚠ cmux 미저장 창 ${sc.treeOnlyWindows}개 감지</b>
+       <span class="muted"> — cmux 세션 파일에는 창 ${sc.nativeWindows}개만 있는데 실제로는 ${sc.treeWindows}개가 열려 있었습니다.
+       미저장 창(워크스페이스 ${sc.treeOnlyWorkspaces}개${sc.treeOnlyClaude?` · Claude ${sc.treeOnlyClaude}개`:''})은
+       <b>cmux를 재시작하면 그대로 사라집니다</b> — 스냅샷에서 근사 복원만 가능합니다.</span>
+       <div class="muted" style="margin-top:6px">근사 복원 = 워크스페이스·탭 구성·브라우저 URL·claude 세션은 그대로, <b>분할 비율/방향·워크스페이스 색·그룹은 복원되지 않음</b>.</div>
+     </div>`;
+  const head=`<div class="filterbar">
+      <span class="big">복구 · 레이아웃</span>
+      <span class="muted">스냅샷</span> ${picker}
+      <span class="muted">${fmt(d.capturedAt)} · 창 ${CURLW.length}·WS ${tWs}·${ic('circle',{cls:'claudedot'})}${tC} ${ic('square-terminal')}${tT} ${ic('globe')}${tB}</span>
+      <a href="/api/recovery.txt" target="_blank"><button>복구표 txt</button></a>
+      ${pager}
+    </div>
+    <div class="selbar">
+      <span>선택 <span class="n" id="lselN">0</span>개 탭</span>
+      <button class="warn" onclick="restoreLayoutSelected()">⟳ 선택 복원 (스플릿 그대로)</button>
+      <button onclick="lselAll(true)">전체 선택</button>
+      <button onclick="lselAll(false)">해제</button>
+      <span style="border-left:1px solid var(--border);height:18px"></span>
+      <select id="restoreTarget" title="복원 위치">
+        <option value="new">새 창에 복원</option>
+        <option value="current">↳ 현재 창에 복원</option>
+      </select>
+      <label class="toggle"><input type="checkbox" checked onchange="autoRunClaude=this.checked"> claude 자동 실행 <span class="muted">(기본 ON·최대 12, 끄면 구조만)</span></label>
+      <span style="border-left:1px solid var(--border);height:18px"></span>
+      <button onclick="restoreAll()">cmux 내장 전체복원</button>
+      <span class="muted">한 번에 4~12개 WS 권장(OOM)</span>
+    </div>${mmBanner}${ctlBanner}`;
+  const cols=CURLW.map((w,wi)=>renderWindowBody(w,wi)).join('');
+  const body = cols ? `<div class="board roomy">${cols}</div>` : '';
+  $("#main").innerHTML = head + (body || `<div class="empty">${searchQ?`“${esc(searchQ)}” 결과 없음`:'표시할 레이아웃이 없습니다.'}</div>`);
+  updateLselBar();
+}
+// ---- 스냅샷 피커 페이지 이동 ----
+// 페이지를 옮겨도 recSnapId(보고 있는 스냅샷)는 유지한다 — 목록만 이동하고, 실제 전환은
+// 드롭다운에서 고를 때 일어난다(실수로 다른 시점이 열리는 것 방지).
+function recPage(dir){
+  const next = recOffset + dir*REC_PAGE;
+  if(next < 0 || next >= recTotal) return;
+  recOffset = next; renderRecovery();
+}
+async function recJumpDate(v){
+  if(!v) return;
+  try{
+    const r = await api(`/api/snapshots?limit=${REC_PAGE}&date=${encodeURIComponent(v)}`+(recMsOnly?'&milestones=1':''));
+    recOffset = r.offset||0; renderRecovery();
+    toast(r.snapshots.length ? `${v} 구간으로 이동` : `${v} 부근에 스냅샷 없음`);
+  }catch(e){ toast('이동 실패: '+e.message); }
+}
+function recToggleMs(on){ recMsOnly=on; recOffset=0; renderRecovery(); }
+
+function hasClaudeWs(ws){ return Object.values(ws.panels).some(p=>p.sessionId); }
+function renderWindowBody(w, wi){
+  const groupsById={}; (w.groups||[]).forEach(g=>groupsById[g.id]=g);
+  // "Group N" 자동 헤더(anchor)는 숨김 — 복원 시 group.create가 재생성
+  let wss=w.workspaces.filter(ws=>!ws.isGroupAnchor);
+  if(claudeOnly) wss=wss.filter(hasClaudeWs);
+  if(searchQ) wss=wss.filter(matchLayoutWs);
+  if(!wss.length) return '';
+  const nC=wss.filter(hasClaudeWs).length;
+  // 연속된 같은 그룹 워크스페이스를 그룹 블록으로 묶기(순서 유지)
+  const blocks=[]; let cur=null;
+  wss.forEach(ws=>{
+    const g = ws.groupId && groupsById[ws.groupId];
+    if(g){
+      if(cur && cur.gid===ws.groupId){ cur.members.push(ws); }
+      else { cur={type:'group', gid:ws.groupId, g, members:[ws]}; blocks.push(cur); }
+    } else { cur=null; blocks.push({type:'ws', ws}); }
+  });
+  const inner=blocks.map(b=> b.type==='group' ? groupBlockHtml(b.g, b.members) : layoutWsCard(b.ws)).join('');
+  // approx = cmux 세션 JSON 에 없어 스냅샷 tree 로 합성한 창(분할 비율·색·그룹 미복원)
+  const approxBadge = w.approx
+    ? ` <span class="pill" style="border-color:var(--amber);color:var(--amber)"
+         title="cmux 세션 파일에 저장되지 않은 창입니다. 워크스페이스·탭·URL·claude 세션은 복원되지만 분할 비율/방향·색상·그룹은 복원되지 않습니다.">⚠ 근사 복원</span>`
+    : '';
+  return `<div class="bwin">
+    <div class="bwin-head">
+      <input type="checkbox" class="big-check" onclick="toggleWin(${wi}, this.checked)" title="이 창 전체 선택">
+      <span class="wt">${ic('app-window')} ${esc(w.title)}</span>${approxBadge}
+      <span class="wn">WS ${wss.length}${nC?` · C ${nC}`:''}</span>
+    </div>${inner}</div>`;
+}
+function groupBlockHtml(g, members){
+  const color=g.color||'var(--group-fallback)';
+  const badges=(g.pinned?`<span class="pill">${ic('pin',{cls:'pin'})} 고정</span>`:'')+(g.collapsed?'<span class="pill">접힘</span>':'');
+  return `<div class="lgroup" style="border-left-color:${esc(color)}">
+    <div class="lgroup-head">
+      <input type="checkbox" class="big-check grp-check" onclick="toggleGroupBox(this)" title="그룹 전체 선택">
+      <span class="gicon">${ic('folder')}</span><b>${hl(g.name||'(그룹)')}</b> ${badges}
+      <span class="muted">· ${members.length}개 워크스페이스</span>
+    </div>
+    <div class="lgroup-body">${members.map(layoutWsCard).join('')}</div>
+  </div>`;
+}
+function toggleGroupBox(el){
+  const box=el.closest('.lgroup'); if(!box) return;
+  box.querySelectorAll('.ws-check').forEach(cb=>{ cb.checked=el.checked; toggleWs(cb); });
+  el.indeterminate=false;
+}
+function toggleTab(el){
+  const wsId=el.dataset.ws, pid=el.dataset.pid, s=lselSet(wsId);
+  if(s.has(pid)){ s.delete(pid); el.classList.remove('on'); }
+  else { s.add(pid); el.classList.add('on'); }
+  if(!s.size) delete LSEL[wsId];
+  syncWsCheck(wsId); updateLselBar();
+}
+function toggleWs(el){
+  const wsId=el.dataset.wsid, on=el.checked, s=lselSet(wsId);
+  document.querySelectorAll(`.mm-chip[data-ws="${wsId}"]`).forEach(c=>{
+    const pid=c.dataset.pid;
+    if(on){ s.add(pid); c.classList.add('on'); } else { s.delete(pid); c.classList.remove('on'); }
+  });
+  if(!s.size) delete LSEL[wsId];
+  el.indeterminate=false; updateLselBar();
+}
+function syncWsCheck(wsId){
+  const ws=LWS[wsId]; if(!ws) return;
+  const total=Object.keys(ws.panels).length, sel=(LSEL[wsId]||new Set()).size;
+  const cb=document.querySelector(`.ws-check[data-wsid="${wsId}"]`);
+  if(cb){ cb.checked=sel>0&&sel===total; cb.indeterminate=sel>0&&sel<total; }
+}
+function toggleWin(wi, on){
+  const w=CURLW[wi]; if(!w) return;
+  w.workspaces.forEach(ws=>{
+    const cb=document.querySelector(`.ws-check[data-wsid="${ws.id}"]`);
+    if(cb){ cb.checked=on; toggleWs(cb); }
+  });
+}
+function lselAll(on){ document.querySelectorAll('.ws-check').forEach(cb=>{ cb.checked=on; toggleWs(cb); }); }
+async function restoreLayoutSelected(){
+  if(needControl()) return;
+  const selections=[];
+  for(const wsId in LSEL) if(LSEL[wsId].size) selections.push({wsId, panelIds:[...LSEL[wsId]]});
+  if(!selections.length){ toast('선택된 탭이 없습니다'); return; }
+  let nClaude=0;
+  selections.forEach(s=>{ const ws=LWS[s.wsId]; if(ws) s.panelIds.forEach(pid=>{ if(ws.panels[pid]&&ws.panels[pid].sessionId) nClaude++; }); });
+  const target=(document.getElementById('restoreTarget')||{}).value||'new';
+  const where= target==='current' ? '현재 창' : '새 창';
+  let msg=`${selections.length}개 워크스페이스 · ${lselCount()}개 탭을 스플릿 배치 그대로 ${where}에 복원합니다.\n`;
+  msg+= autoRunClaude ? `claude ${nClaude}개 중 최대 12개 자동 실행(OOM 가드), 초과분은 복구표에서 수동.` : `claude ${nClaude}개는 resume 바인딩만(수동 실행).`;
+  if(selections.length>12) msg+=`\n⚠️ 한 번에 4~12개 권장.`;
+  if(!confirm(msg+'\n진행할까요?')) return;
+  try{
+    const r=await post('/api/cmux/restore-layout',{snapshotId:Number(recSnapId), selections, autoRunClaude, target});
+    const fb=r.results.filter(x=>x.mode&&x.mode.indexOf('flat')>=0).length;
+    const fail=r.results.filter(x=>!x.ok).length;
+    const ar=(r.autorunInjected||0);
+    toast(`복원 ${r.restored}/${r.workspaces} WS`+(ar?` · claude ${ar} 실행`:'')+(fb?` · flat폴백 ${fb}`:'')+(fail?` · 실패 ${fail}`:''));
+    renderRecovery();
+  }catch(e){ toast('실패: '+e.message); }
+}
+function selectAllRestorable(check){
+  document.querySelectorAll('#main .selbox').forEach(el=>{
+    el.checked=check; check?SEL.add(el.dataset.id):SEL.delete(el.dataset.id);
+  });
+  updateSelbar();
+}
+function selectedItems(){ return [...SEL].map(id=>ITEMS[id]).filter(Boolean); }
+function copySelected(){
+  const its=selectedItems(); if(!its.length){ toast('선택된 항목이 없습니다'); return; }
+  const lines=its.map(i=> i.type==='claude' ? i.command : `cmux open '${i.url}'`);
+  copyText(lines.join('\n'));
+}
+async function restoreSelected(){
+  if(needControl()) return;
+  const items=selectedItems(); if(!items.length){ toast('선택된 항목이 없습니다'); return; }
+  const cl=items.filter(i=>i.type==='claude').length, br=items.filter(i=>i.type==='browser').length;
+  const nws=new Set(items.map(i=>i.wsKey||('_'+Math.random()))).size;
+  let msg=`${nws}개 워크스페이스로 복원 (원래 이름·소속 창·고정 유지):\nclaude 터미널 ${cl}개 + 브라우저 탭 ${br}개.`;
+  if(cl>8) msg+=`\n⚠️ claude 터미널은 OOM 방지로 8개까지만 실행됩니다.`;
+  if(!confirm(msg+'\n진행할까요?')) return;
+  try{
+    const r=await post('/api/cmux/restore',{items});
+    const fails=r.results.filter(x=>!x.ok);
+    toast(`복원 ${r.restored}/${r.workspaces} 워크스페이스 완료`+(fails.length?` · 실패 ${fails.length}(${esc(fails[0].error||'').slice(0,30)})`:''));
+    renderRecovery();   // 복구된 항목은 '복구됨'으로 기록되어 숨겨짐
+  }catch(e){ toast('실패: '+e.message); }
+}
+function needControl(){ if(!CONTROL){ toast("소켓 제어 비활성 — cmux 재시작 후 사용 가능"); return true; } return false; }
+async function restoreAll(){
+  if(needControl()) return;
+  if(!confirm("cmux 내장 복원(restore-session)을 실행합니다. 직전 저장 세션 전체를 다시 엽니다. 진행할까요?")) return;
+  try{ await post('/api/cmux/restore-session'); toast("cmux 복원 실행됨"); }
+  catch(e){ toast("실패: "+e.message); }
+}
+async function doFocus(wsId){
+  if(needControl()) return;
+  try{ await post('/api/cmux/focus',{workspace:wsId}); toast("포커스 이동"); }
+  catch(e){ toast("실패: "+e.message); }
+}
+async function doOpen(path){
+  if(needControl()) return;
+  try{ await post('/api/cmux/open',{path}); toast("폴더 열기"); }
+  catch(e){ toast("실패: "+e.message); }
+}
+
+// ---------- 상태바 ----------
+let CONTROL = false;
+async function refreshStatus(){
+  try{
+    const h = await api('/api/health');
+    CONTROL = !!h.controlAvailable;
+    checkAssetVersion(h.assetVersion);
+    $("#status").innerHTML =
+      `<span><span class="dot ${CONTROL?'on':'off'}"></span>소켓 제어 ${CONTROL?'가능':'비활성'}</span>`+
+      `<span>스냅샷 #${h.latestSnapshotId??'—'} · 세션 ${h.latestSessions??'—'} · ${ago(h.latestSnapshotAt)}</span>`;
+  }catch(e){ $("#status").innerHTML='<span class="muted">상태 확인 실패</span>'; }
+}
+
+/* 열어 둔 페이지가 옛 코드로 도는 걸 알려 준다(자산 URL 의 ?v= 와 서버 최신 버전 비교). */
+function checkAssetVersion(v){
+  if(!v) return;
+  const l = document.querySelector('link[href*="board.css"]');
+  const m = l && l.href.match(/[?&]v=(\d+)/);
+  if(!m || String(v) === m[1]) return;
+  let el = document.getElementById('newver');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'newver';
+    el.innerHTML = '<span>대시보드가 업데이트됐습니다</span>'
+      + '<button onclick="location.reload()">새로고침</button>';
+    document.body.appendChild(el);
+  }
+  el.classList.add('show');
+}
+
+// ---------- 탭 전환 + URL 라우팅 ----------
+// 탭마다 고유 URL(/now·/current·/history·/recovery·/health). 새로고침·북마크·뒤로가기가
+// 그 탭으로 그대로 돌아온다. 서버는 이 경로 전부에 같은 index.html 을 준다.
+const TAB2PATH = {now:'/now', live:'/current', history:'/history',
+                  recovery:'/recovery', health:'/health'};
+const PATH2TAB = {'/':'live','/now':'now','/current':'live','/history':'history',
+                  '/recovery':'recovery','/health':'health'};
+
+/* 편집 모드 — 보드를 끌어서 실제 cmux 배치를 바꾼다.
+   ⚠️ 편집 중에는 폴링을 멈춘다. 5~8초마다 화면을 다시 그리면 끌던 카드가 사라지고,
+      더 나쁘게는 아직 안 보낸 편집이 서버 응답으로 조용히 덮인다. */
+function editableTab(name){ return name === 'live' || name === 'now'; }
+
+function toggleEdit(){
+  if(!window.BOARDEDIT) return;
+  if(BOARDEDIT.active){ BOARDEDIT.exit(); return; }   // exit → onExit 에서 폴링 재개
+  if(!editableTab(CUR)){
+    toast('편집은 「현재」·「지금 어디」 탭에서만 됩니다 — 히스토리·복구는 지나간 스냅샷입니다');
+    return;
+  }
+  clearInterval(liveTimer); liveTimer = null;
+  if(window.NAV) NAV.stop();
+  const btn = document.getElementById('editBtn');
+  if(btn) btn.innerHTML = ic('x') + ' 편집 끝내기';
+  BOARDEDIT.enter({host:'#main', onExit: ()=>{
+    const b = document.getElementById('editBtn');
+    if(b) b.innerHTML = ic('pencil') + ' 편집';
+    liveLastHtml = null;
+    switchTab(CUR, {noPush:true});      // 보기 모드로 되돌리며 폴링도 다시 건다
+  }});
+}
+
+function switchTab(name, opts){
+  opts = opts || {};
+  // 탭을 옮기면 편집 모드는 끝난다 — 다른 탭 위에 편집 보드가 남으면 무엇을 편집 중인지
+  // 알 수 없다. exit 의 onExit 가 switchTab 을 다시 부르지 않도록 먼저 떼어 낸다.
+  if(window.BOARDEDIT && BOARDEDIT.active){
+    BOARDEDIT.exit(true);               // silent — 아래에서 어차피 다시 그린다
+    const b = document.getElementById('editBtn');
+    if(b) b.innerHTML = ic('pencil') + ' 편집';
+  }
+  CUR = name;
+  const eb = document.getElementById('editBtn');
+  if(eb) eb.style.display = editableTab(name) ? '' : 'none';
+  // '지금 어디'는 전부 Claude 세션이라 'Claude 세션만' 필터가 의미 없다 → 숨긴다.
+  document.body.classList.toggle('board-page', name==='live' || name==='now' || name==='recovery');
+  const co = document.getElementById('claudeOnly');
+  if(co && co.parentElement) co.parentElement.style.display = (name==='now') ? 'none' : '';
+  const se = document.getElementById('search');
+  if(se) se.placeholder = (name==='now')
+    ? '탭·워크스페이스·그룹·창·세션·프롬프트 검색' : '워크스페이스·탭·세션·URL 검색';
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
+  clearInterval(liveTimer); liveTimer=null;
+  if(window.NAV) NAV.stop();
+  if(!opts.noPush){
+    const path = TAB2PATH[name] || '/';
+    if(location.pathname !== path) history.pushState({tab:name}, '', path);
+  }
+  liveLastHtml = null;
+  $("#main").innerHTML='<div class="empty">불러오는 중…</div>';
+  if(name==='now') renderNow();
+  else if(name==='live'){ renderLive(); liveTimer=setInterval(renderLive,8000); }
+  else if(name==='history') renderHistory();
+  else if(name==='recovery') renderRecovery();
+  else if(name==='health'){ renderHealth(); liveTimer=setInterval(renderHealth,30000); }
+}
+
+// '지금 어디' — 살아있는 Claude 탭 목록(공용 nav.js). 클릭 시 그 탭으로 포커스 이동.
+function renderNow(){
+  $("#main").innerHTML = `
+    <div class="nav-bar">
+      <label class="toggle" title="켜면 창별 컬럼으로, 끄면 상태별 목록으로 봅니다">
+        <input type="checkbox" id="navView" checked> 창별 보기</label>
+      <label class="toggle" title="끄면 cmux 내부에서 탭만 바꾸고 앱은 그대로 둡니다">
+        <input type="checkbox" id="navActivate" checked> 클릭 시 cmux 앞으로</label>
+      <label class="toggle"><input type="checkbox" id="navIdle"> 유휴도 보기</label>
+      <span class="muted" id="navMeta" style="font-size:12px;display:flex;gap:12px;flex-wrap:wrap"></span>
+      <a href="/now/full" target="_blank" style="margin-left:auto;font-size:12px">전체화면으로 열기 ↗</a>
+    </div>
+    <div id="navList"><div class="empty">불러오는 중…</div></div>`;
+  NAV.start({main:'#navList', meta:'#navMeta', idleToggle:'#navIdle',
+             activateToggle:'#navActivate', viewToggle:'#navView', query: searchQ});
+}
+
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>switchTab(t.dataset.tab));
+window.addEventListener('popstate', ()=>{
+  switchTab(PATH2TAB[location.pathname] || 'live', {noPush:true});
+});
+
+// ---------- 시작 ----------
+refreshStatus(); setInterval(refreshStatus, 10000);
+/* 헤더의 고정 아이콘 — 마크업에 SVG 를 박아 두면 icons.js 와 두 벌이 되므로 여기서 채운다. */
+document.getElementById('searchIcon').innerHTML = ic('search');
+document.getElementById('editBtnLbl').innerHTML = ic('pencil') + ' 편집';
+document.getElementById('nowTabLbl').innerHTML = ic('crosshair') + ' 지금 어디';
+
+switchTab(PATH2TAB[location.pathname] || 'live', {noPush:true});
+</script>
+</body>
+</html>

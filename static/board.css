@@ -1,0 +1,257 @@
+/* 창별 컬럼 보드 — 창 하나가 컬럼 하나. 4개 탭(현재/지금 어디/히스토리/복구)이 함께 쓴다.
+   세로로 길게 늘어놓으면 "어느 창에 뭐가 있나"가 안 보인다는 신고에서 출발했다.
+   그래서 창을 가로로 세우고, 그 안에 그룹 → 워크스페이스/탭 순으로 접어 넣는다. */
+
+.board{display:flex;gap:12px;align-items:flex-start;overflow-x:auto;padding:2px 2px 10px}
+.board::-webkit-scrollbar{height:9px}
+.board::-webkit-scrollbar-thumb{background:var(--scrollbar);border-radius:5px}
+.board::-webkit-scrollbar-thumb:hover{background:var(--scrollbar-hover)}
+
+.bwin{flex:0 0 var(--bwin-w, 300px);max-width:var(--bwin-w, 300px);
+  background:var(--panel);border:1px solid var(--border);border-radius:11px;
+  padding:9px 9px 6px;min-height:60px}
+.bwin.here{border-color:rgb(var(--accent-rgb) / .5)}
+.bwin-head{display:flex;align-items:center;gap:7px;flex-wrap:wrap;
+  padding:2px 2px 8px;border-bottom:1px solid var(--border);margin-bottom:8px}
+/* 제목 위계는 **크기와 굵기가 같은 방향으로** 움직여야 읽힌다 (2026-09-02).
+   그전엔 서로 반대였다 — 카드 제목 12.5px/500 이 그룹 11.5px/600 보다 크면서 더 얇아,
+   정작 본체인 카드가 담는 그릇보다 약해 보였다. 게다가 창·그룹·워크스페이스가 전부 600
+   굵기에 0.5px 씩만 차이 나서 세 층이 사실상 한 층으로 뭉쳤다.
+   지금은 담는 것(창 700 → 그룹 600 → 워크스페이스 500)이 아래로 갈수록 조용해지고,
+   담기는 것(카드 제목 600)이 그 위로 올라선다. */
+.bwin-head .wt{font-weight:700;font-size:13.5px;letter-spacing:-.01em;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bwin-head .wn{font-size:11px;color:var(--dim);margin-left:auto;white-space:nowrap}
+.bwin-head .wdots{display:flex;gap:4px;font-size:11px;color:var(--dim);white-space:nowrap}
+
+/* 그룹 블록 — cmux 의 워크스페이스 그룹(색·아이콘·고정) */
+.bgroup{border-left:3px solid var(--border);padding-left:7px;margin:0 0 9px}
+.bgroup-head{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--dim);
+  padding:1px 0 4px;cursor:pointer;user-select:none}
+.bgroup-head b{color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bgroup-head .caret{width:9px;flex:none;opacity:.7}
+.bgroup.collapsed .bgroup-body{display:none}
+.bgroup-body{display:flex;flex-direction:column;gap:5px}
+.bungrouped{margin-bottom:9px;display:flex;flex-direction:column;gap:5px}
+
+/* 압축 카드 — 한 줄 요약, 클릭하면 상세가 펼쳐진다 */
+/* 카드의 두 신호는 **자리를 나눈다** (2026-09-02).
+     왼쪽 띠 3px = cmux 워크스페이스 색 — 사람이 직접 칠한 것. "이게 어느 일이냐"
+     배경 옅은 물듦   = 상태 — "지금 돌고 있나 / 나를 기다리나"
+   한 채널(띠)에 둘을 섞으면 둘 다 못 읽는다. 띠는 워크스페이스에 내주고 상태는 면으로 옮겼다.
+
+   구현: 상태 색은 **배경 레이어**로 얹는다 — background-color 는 --panel2 로 두고
+   그 위에 반투명 한 겹을 깐다. 카드 배경을 통째로 바꾸면 워크스페이스별 색과 섞여
+   탁해지므로, 카드 바탕은 유지한 채 물만 들인다.
+   --wsc 는 nav.js/index.html 이 인라인으로 넣는다(없으면 회색 폴백). --tint 는 상태가 정한다. */
+.bcard{
+  --wsc:var(--group-fallback);
+  --tint:transparent;
+  background-color:var(--panel2);
+  background-image:linear-gradient(var(--tint),var(--tint));
+  border:1px solid var(--border);border-left:3px solid var(--wsc);
+  border-radius:8px;padding:6px 8px;font-size:12.5px}
+.bcard:hover{border-color:var(--accent)}
+.bcard.running{--tint:rgb(var(--green-rgb) / .13)}
+/* 막힘은 이 화면에서 제일 급한 것이라 물을 조금 더 진하게 들인다 */
+.bcard.permission,.bcard.question{--tint:rgb(var(--amber-rgb) / .16)}
+.bcard.background{--tint:rgb(var(--lemon-rgb) / .17)}
+.bcard.waiting{--tint:rgb(var(--claude-rgb) / .09)}
+/* 유휴·오래된·claude 없는 카드는 흐리게 — 다만 **카드가 아니라 카드의 '내용'만** 흐리게 한다.
+   ⚠️ 예전엔 .bcard 자체에 opacity 를 걸었는데 그게 두 가지를 동시에 망가뜨렸다(신고 2026-08-26):
+      ① hover 설명 카드(::after)가 자식이라 같이 흐려져 **읽을 수가 없었다**.
+      ② opacity<1 은 **쌓임 맥락을 만든다** — 그래서 z-index:40 을 줘도 설명이 뒤따르는
+         카드 위로 못 올라와 글자가 겹쳐 보였다.
+   내용만 흐리게 하면 "덜 중요하다"는 신호는 그대로 두면서 설명은 선명하게 뜬다. */
+.bcard.idle{--tint:transparent}
+.bcard.stale{--tint:transparent}
+.bcard.noclaude{--tint:transparent}
+.bcard.idle > .brow, .bcard.idle > .bmeta{opacity:var(--fade-idle)}
+.bcard.stale > .brow, .bcard.stale > .bmeta{opacity:var(--fade-stale)}
+.bcard.noclaude > .brow, .bcard.noclaude > .bmeta{opacity:var(--fade-none)}
+.bcard.here{outline:1px solid rgb(var(--accent-rgb) / .55)}
+.bcard.sel{outline:1px solid rgb(var(--accent-rgb) / .6)}
+/* 카드 전체가 클릭 대상이다 — 커서도 카드 전체에서 손모양이어야 "여기 누르면 된다"가 보인다.
+   상세(.bdetail)만 예외: 그 안은 읽고 복사하는 영역이라 기본 커서를 쓴다. */
+.bcard{cursor:pointer}
+.bcard .bdetail{cursor:auto;user-select:text}
+/* ⚠️ 압축 행(제목·배지)에서 **글자 선택을 막는다.** 누르면서 2~3px 만 끌려도 글자가 선택되고,
+   그러면 "선택 중에는 접지 않는다" 가드에 걸려 클릭이 조용히 무시된다 — 사용자에겐 "눌렀는데
+   가끔 안 되는" 것으로 보인다. 이 행은 버튼처럼 눌리는 자리이지 읽어서 복사하는 자리가 아니다.
+   복사할 내용(세션ID·경로·프롬프트)은 상세 안에 있고 거기는 그대로 선택된다. */
+.bcard .brow, .bcard .bmeta{user-select:none;-webkit-user-select:none}
+.brow{display:flex;align-items:center;gap:6px;min-width:0;line-height:1.42}
+.brow .bic{flex:none;width:14px;font-size:13px;display:flex;align-items:center;justify-content:center}
+.brow .btitle{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;font-size:13px;font-weight:600;letter-spacing:-.005em}
+.brow .bage{flex:none;font-family:var(--mono);font-size:10.5px;color:var(--dim);white-space:nowrap}
+.brow .bage.hot{color:var(--green)}
+.brow .bchk{flex:none;width:13px;height:13px;accent-color:var(--accent);cursor:pointer;margin:0}
+.bmeta{display:flex;gap:5px;flex-wrap:wrap;margin-top:3px;padding-left:20px}
+/* 배지는 카드 하나에 3~5개씩 붙는다(tab:155 · 세션명 · 보임 · 고정 · 분할 2).
+   전부 테두리를 두르면 그 선들이 카드마다 격자처럼 쌓여 정작 제목을 가린다.
+   → **중립 배지는 테두리를 뺀다.** 면(배경)만으로 충분히 덩어리로 읽힌다.
+     테두리는 '지금 보는 탭'·'보임' 처럼 **차이를 말하는 배지에만** 남긴다 —
+     선이 드물어야 선이 신호가 된다.
+   글자는 10 → 10.5px. 10px 는 모노 소문자에서 자획이 뭉개진다. */
+.btag{font-family:var(--mono);font-size:10.5px;background:var(--bg);border:1px solid transparent;
+  border-radius:4px;padding:.5px 5px;color:var(--dim);line-height:1.5}
+.btag.on{color:var(--accent);background:rgb(var(--accent-rgb) / .12);
+  border-color:rgb(var(--accent-rgb) / .42);font-weight:600}
+
+/* 펼침 상세 */
+.bdetail{display:none;margin-top:7px;padding:7px 8px;background:var(--bg);
+  border:1px solid var(--border);border-radius:7px;font-size:11.5px;color:var(--dim);line-height:1.55}
+.bcard.open .bdetail{display:block}
+.bcard.open .brow .btitle{white-space:normal;overflow:visible}
+.bdetail .bq{color:var(--text);margin-bottom:6px;overflow-wrap:anywhere}
+.bdetail .bk{color:var(--dim);font-family:var(--mono);font-size:10.5px;overflow-wrap:anywhere}
+.bdetail .bbtns{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}
+.bdetail button{font-size:11px;padding:3px 8px}
+.bsurf{display:flex;gap:5px;align-items:center;font-size:11px;color:var(--dim);padding:1px 0;min-width:0}
+.bsurf .bt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* 보드 폭 조절 */
+.board.dense{--bwin-w:250px}
+.board.roomy{--bwin-w:360px}
+@media(max-width:520px){ .board{--bwin-w:88vw} }
+
+/* 복구 탭 — 기존 레이아웃 카드(.lw)와 미니맵(.mm)을 컬럼 폭에 맞춘다.
+   미니맵은 분할 배치를 눈으로 고르는 수단이라 압축하지 않고 그대로 둔다. */
+.bwin .lgroup{margin-bottom:8px}
+.bwin .lw{margin-bottom:6px;padding:6px 7px}
+.bwin .lw-head{font-size:12px;flex-wrap:wrap;gap:5px}
+.bwin .lw-head .sub{font-size:10.5px;flex-basis:100%;margin-left:0}
+.bwin .mm{margin-top:5px}
+.bwin-head .big-check{flex:none;margin:0 2px 0 0}
+
+/* 워크스페이스 층 — claude 탭이 둘 이상일 때만 나타난다(하나면 중첩을 만들지 않는다) */
+.bws{border:1px dashed var(--border);border-radius:8px;padding:5px 5px 4px;margin-bottom:5px;
+  background:rgb(var(--tint-rgb) / .015)}
+.bws-head{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--dim);
+  padding:1px 3px 4px}
+.bws-head b{color:var(--text);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bws-body{display:flex;flex-direction:column;gap:4px}
+.bwin.here{border-color:rgb(var(--accent-rgb) / .55);box-shadow:0 0 0 1px rgb(var(--accent-rgb) / .18)}
+
+/* 워크스페이스 설명 호버 카드 — 커서를 올리면 떠오르는 작은 패널.
+   OS 기본 title 툴팁은 지연이 길고 줄바꿈이 제멋대로라 별도로 그린다. */
+.bcard[data-desc]{position:relative}
+.bcard[data-desc]:hover::after{
+  content:attr(data-desc);
+  position:absolute;left:8px;right:8px;top:calc(100% - 2px);z-index:40;
+  background:var(--tip-bg);border:1px solid var(--border);border-radius:8px;
+  padding:8px 10px;font-size:11.5px;line-height:1.55;color:var(--text);
+  box-shadow:var(--shadow-md);white-space:pre-wrap;pointer-events:none}
+.bcard[data-desc].open:hover::after{display:none}   /* 펼친 상태에선 상세가 이미 보인다 */
+
+/* 새 버전 알림 — 페이지를 열어 둔 채로는 로드 시점 JS 가 계속 돈다.
+   서버 자산 버전이 바뀌면 화면이 스스로 알려 준다("고쳤는데 왜 그대로냐"의 반복을 끊는다). */
+#newver{position:fixed;right:16px;bottom:16px;z-index:200;display:none;gap:9px;align-items:center;
+  background:var(--notice-bg);border:1px solid rgb(var(--accent-rgb) / .55);border-radius:10px;
+  padding:10px 13px;font-size:13px;color:var(--text);box-shadow:var(--shadow-lg)}
+#newver.show{display:flex}
+#newver button{font-size:12px;padding:4px 10px;background:var(--accent);color:var(--on-accent);
+  border-color:var(--accent);font-weight:600}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   편집 모드 — 보드를 끌어서 실제 cmux 배치를 바꾼다.
+   보기 전용 보드(.board)와 DOM 을 공유하지 않고 별도로 그린다. 이유:
+   보기 보드는 검색·'Claude 세션만' 필터가 걸린 **부분 집합**이라, 그 위에서 끌면
+   화면에 없는 워크스페이스의 위치를 모른 채 전체 순서를 만들게 된다. 편집 모드는
+   필터를 무시하고 사이드바에 있는 것을 전부 그린다.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* 편집 바 — 화면 위에 붙어 "지금 편집 중"과 되돌릴 수단을 항상 보이게 한다 */
+#editbar{position:sticky;top:0;z-index:60;display:flex;align-items:center;gap:8px;
+  flex-wrap:wrap;padding:9px 11px;margin:0 0 10px;
+  background:linear-gradient(var(--editbar-a),var(--editbar-b));border:1px solid rgb(var(--accent-rgb) / .45);
+  border-radius:11px;box-shadow:var(--shadow-sm)}
+#editbar .etitle{font-weight:600;font-size:13px;color:var(--accent)}
+#editbar .ecount{font-size:12px;color:var(--dim)}
+#editbar .ecount b{color:var(--text)}
+#editbar .spacer{margin-left:auto}
+#editbar button{font-size:12px;padding:5px 11px;border-radius:7px}
+#editbar button.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
+#editbar button.primary:disabled{opacity:.4;cursor:default}
+#editbar button:disabled{opacity:.4;cursor:default}
+#editbar .warn{flex-basis:100%;font-size:11.5px;color:var(--amber);line-height:1.6}
+
+/* 적용 결과 — 토스트로 흘리지 않는다. 클램프·불일치는 남겨서 읽게 한다. */
+#editresult{margin:0 0 10px;padding:9px 11px;border-radius:10px;font-size:12px;line-height:1.65;
+  border:1px solid var(--border);background:var(--panel)}
+#editresult.ok{border-color:rgb(var(--green-rgb) / .45)}
+#editresult.bad{border-color:rgb(var(--amber-rgb) / .55)}
+#editresult h4{margin:0 0 5px;font-size:12.5px}
+#editresult ul{margin:3px 0 0;padding-left:17px}
+#editresult li{margin:2px 0}
+#editresult .muted{color:var(--dim)}
+#editresult .x{float:right;cursor:pointer;color:var(--dim);padding:0 3px}
+
+/* 편집 보드 — 컬럼(창) 가로 배치는 보기 보드와 같게 */
+.eboard{display:flex;gap:12px;align-items:flex-start;overflow-x:auto;padding:2px 2px 14px}
+.eboard::-webkit-scrollbar{height:9px}
+.eboard::-webkit-scrollbar-thumb{background:var(--scrollbar);border-radius:5px}
+
+.ecol{flex:0 0 300px;max-width:300px;background:var(--panel);
+  border:1px solid var(--border);border-radius:11px;padding:8px 8px 6px}
+.ecol.dragging{opacity:.35}
+.ecol-head{display:flex;align-items:center;gap:6px;padding:2px 2px 8px;
+  border-bottom:1px solid var(--border);margin-bottom:8px;font-size:13px}
+.ecol-head .wt{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ecol-head .wn{margin-left:auto;font-size:11px;color:var(--dim);white-space:nowrap}
+.ecol-body{display:flex;flex-direction:column;gap:7px;min-height:34px}
+
+/* 그룹 블록 */
+.eblock{border-left:3px solid var(--border);border-radius:0 8px 8px 0;
+  padding:4px 5px 5px 7px;background:rgb(var(--tint-rgb) / .02)}
+.eblock.plain{border-left-style:dashed;background:none}
+.eblock.dragging{opacity:.35}
+.eblock-head{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--dim);padding:1px 0 5px}
+.eblock-head b{color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.eblock-head .n{margin-left:auto}
+.eblock-body{display:flex;flex-direction:column;gap:5px;min-height:22px}
+
+/* 카드 */
+.ecard{display:flex;align-items:center;gap:6px;background:var(--panel2);
+  border:1px solid var(--border);border-left:3px solid var(--edge-idle);border-radius:8px;
+  padding:6px 8px;font-size:12.5px;cursor:grab;user-select:none;touch-action:none}
+.ecard:hover{border-color:var(--accent)}
+.ecard.dragging{opacity:.3}
+.ecard .et{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ecard .eb{flex:none;font-family:var(--mono);font-size:9.5px;color:var(--dim);
+  display:inline-flex;align-items:center;gap:2px;
+  border:1px solid var(--border);border-radius:4px;padding:0 3px}
+.ecard.moved{border-left-color:var(--accent);background:rgb(var(--accent-rgb) / .10)}
+.ecard.selectedws{border-left-color:var(--accent)}
+/* 앵커 = 그룹 머리. 끌어낼 수 없다 — 앵커가 빠지면 그룹 자체가 흩어진다. */
+.ecard.anchor{cursor:default;opacity:.75;border-style:dashed}
+.ecard.anchor:hover{border-color:var(--border)}
+/* 고정 워크스페이스. cmux 가 고정 블록 밖으로 못 나가게 클램프한다 → 눈에 보이게. */
+.ecard.pinned{border-left-color:var(--pin)}
+.ecard .pin{flex:none;font-size:10px;opacity:.85}
+/* 적용 결과 cmux 가 다르게 놓은 카드 */
+.ecard.clash{outline:1.5px solid var(--amber);outline-offset:1px}
+
+/* 끌고 있는 동안의 유령 + 삽입 위치 표시 */
+#eghost{position:fixed;z-index:300;pointer-events:none;opacity:.95;
+  box-shadow:var(--shadow-lg);transform:rotate(-1.2deg)}
+.edrop{height:0;border-top:2px solid var(--accent);margin:-2px 0;border-radius:2px;
+  box-shadow:0 0 6px rgb(var(--accent-rgb) / .75)}
+.edrop.col{height:auto;align-self:stretch;width:0;border-top:none;
+  border-left:2px solid var(--accent);margin:0 -2px}
+body.editing{cursor:default}
+body.editing.grabbing, body.editing.grabbing *{cursor:grabbing !important}
+
+/* 편집 모드의 고정 토글 — 고정은 표시가 아니라 **제약**이다. cmux 가 고정된 워크스페이스를
+   고정 블록 밖으로 못 나가게 막으므로(클램프), 옮기려면 그 자리에서 풀 수 있어야 한다. */
+.ecard .epin{flex:none;background:none;border:1px solid transparent;border-radius:5px;
+  padding:0 3px;font-size:11px;line-height:1.5;cursor:pointer;opacity:.28;filter:grayscale(1)}
+.ecard .epin:hover{opacity:.9;filter:none;border-color:var(--border);background:var(--bg)}
+.ecard .epin.on{opacity:1;filter:none}
+
+/* 시스템이 깨운 활동 — 순서는 사람 활동과 똑같이 취급하되(진짜로 뭔가 하긴 했다) 눈으로는
+   구분되게 한다. 이게 없으면 "보지도 않은 탭이 왜 맨 위냐"가 반복된다(신고 2026-08-26). */
+.btag.wake{color:var(--amber);border-color:rgb(var(--amber-rgb) / .45)}
+.bk.wake{color:var(--amber);opacity:.95}
+.bk.wake b{color:var(--amber)}

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>지금 어디 · cmux 관제실</title>
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<script src="/static/theme.js"></script>
+<link rel="stylesheet" href="/static/tokens.css">
+<link rel="stylesheet" href="/static/nav.css">
+<link rel="stylesheet" href="/static/board.css">
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:var(--sans);font-size:15px}
+  header{position:sticky;top:0;z-index:10;background:var(--panel);border-bottom:1px solid var(--border);
+    padding:12px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  h1{display:flex;align-items:center;gap:7px;font-size:17px;margin:0;
+     font-weight:700;letter-spacing:-.015em;white-space:nowrap}
+  h1 .mark{width:20px;height:20px;flex:none;display:block}
+  h1 .em{color:var(--accent);font-weight:700}
+  .meta{font-size:12px;color:var(--dim);display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .right{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  a.back{color:var(--dim);text-decoration:none;font-size:13px;padding:6px 12px;
+    border:1px solid var(--border);border-radius:7px}
+  a.back:hover{color:var(--text);border-color:var(--accent)}
+  .toggle{display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;
+    padding:5px 10px;border:1px solid var(--border);border-radius:7px;background:var(--panel)}
+  .toggle input{accent-color:var(--accent);cursor:pointer}
+  main{padding:18px;max-width:1000px;margin:0 auto}
+  body.nav-board main{max-width:none}
+  .navsearch{font:inherit;font-size:13px;background:var(--panel2);color:var(--text);
+    border:1px solid var(--border);border-radius:7px;padding:6px 10px;min-width:220px;outline:none}
+  .navsearch:focus{border-color:var(--accent)}
+  .empty{color:var(--dim);padding:36px;text-align:center}
+  @media(max-width:640px){ body{font-size:14px} main{padding:12px} }
+</style>
+</head>
+<body>
+<header>
+  <h1><img class="mark" src="/static/cmux-mark.png" alt="" width="128" height="128"><span id="h1icon"></span><span class="em">지금 어디</span></h1>
+  <span class="searchwrap"><span id="navSearchIcon"></span><input id="navSearch" class="navsearch"
+         placeholder="탭·창·세션·프롬프트 검색" autocomplete="off"></span>
+  <div class="meta" id="meta">불러오는 중…</div>
+  <div class="right">
+    <label class="toggle" title="켜면 창별 컬럼으로, 끄면 상태별 목록으로 봅니다">
+      <input type="checkbox" id="navView" checked> 창별 보기</label>
+    <label class="toggle" title="끄면 cmux 내부에서 탭만 바꾸고 앱은 그대로 둡니다">
+      <input type="checkbox" id="navActivate" checked> 클릭 시 cmux 앞으로</label>
+    <label class="toggle"><input type="checkbox" id="navShowIdle"> 유휴도 보기</label>
+    <button id="themeBtn" class="iconbtn" type="button"></button>
+    <a class="back" href="/now">← 대시보드</a>
+  </div>
+</header>
+<main id="main"><div class="empty">불러오는 중…</div></main>
+<div id="toast"></div>
+<script src="/static/icons.js"></script>
+<script src="/static/nav.js"></script>
+<script>NAV.start({main:'#main', meta:'#meta', idleToggle:'#navShowIdle',
+           activateToggle:'#navActivate', viewToggle:'#navView'});
+document.getElementById('h1icon').innerHTML = ic('crosshair');
+document.getElementById('navSearchIcon').innerHTML = ic('search');
+const q=document.getElementById('navSearch');
+q.addEventListener('input', () => NAV.setQuery(q.value));</script>
+</body>
+</html>

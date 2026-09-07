@@ -1,0 +1,167 @@
+/* '지금 어디' 공용 스타일 — /now 독립 페이지와 대시보드 탭이 함께 쓴다. */
+.nav-grp{margin-bottom:24px}
+.nav-grp-h{font-size:14px;font-weight:700;margin:0 0 10px;display:flex;align-items:center;gap:9px}
+.nav-grp-h .n{font-size:12px;color:var(--dim);font-weight:500}
+/* 목록 보기도 같은 규칙 — 왼쪽 띠=워크스페이스 색, 상태=배경 물듦.
+   자세한 이유는 board.css 의 .bcard 주석 참조. */
+.nav-card{--wsc:var(--group-fallback);--tint:transparent;
+  display:flex;gap:14px;align-items:flex-start;
+  background-color:var(--panel);background-image:linear-gradient(var(--tint),var(--tint));
+  border:1px solid var(--border);border-left:3px solid var(--wsc);border-radius:10px;
+  padding:13px 15px;margin-bottom:9px;cursor:pointer;transition:border-color .12s,background-color .12s}
+.nav-card:hover{border-color:var(--accent);background-color:var(--panel2)}
+.nav-card.running{--tint:rgb(var(--green-rgb) / .13)}
+.nav-card.permission,.nav-card.question{--tint:rgb(var(--amber-rgb) / .16)}
+/* 뒤에서 진행 — 이 상태만 **배경까지 노랗게 깐다**. 아이콘 색만으로는 목록에서 눈에 안 띄고,
+   '지금 살아 있는 탭'이라는 게 스캔하다 걸려야 의미가 있다(작업중 .13 보다 살짝 강하게). */
+.nav-card.background{--tint:rgb(var(--lemon-rgb) / .17)}
+.nav-card.waiting{--tint:rgb(var(--claude-rgb) / .09)}
+.nav-card.idle{opacity:var(--fade-card)}
+.nav-card.unknown{--tint:rgb(var(--red-rgb) / .12)}
+.nav-card.here{outline:1px solid rgb(var(--accent-rgb) / .55)}
+.nav-card .ic{font-size:19px;flex:none;width:22px;display:flex;align-items:center;justify-content:center;padding-top:2px}
+.nav-card .bd{flex:1 1 auto;min-width:0}
+.nav-card .ttl{font-weight:600;font-size:15px;margin-bottom:4px;overflow-wrap:anywhere}
+.nav-card .loc{font-size:12.5px;color:var(--dim);display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+.nav-card .loc b{color:var(--text);font-weight:600}
+.nav-card .loc .sep{opacity:.45}
+.nav-card .tag{font-family:var(--mono);font-size:11px;background:var(--panel2);
+  border:1px solid var(--border);border-radius:5px;padding:1px 6px;color:var(--dim)}
+.nav-card .prompt{margin-top:7px;font-size:12.5px;color:var(--dim);line-height:1.5;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.nav-card .prompt::before{content:'“';opacity:.6}
+.nav-card .prompt::after{content:'”';opacity:.6}
+.nav-card .rt{flex:none;text-align:right;display:flex;flex-direction:column;gap:6px;align-items:flex-end}
+.nav-card .age{font-family:var(--mono);font-size:12px;color:var(--dim);white-space:nowrap}
+.nav-card .age.hot{color:var(--green)}
+.nav-card .go{font:inherit;font-size:12px;cursor:pointer;border:1px solid var(--border);
+  background:var(--panel2);color:var(--text);border-radius:6px;padding:5px 11px;white-space:nowrap}
+.nav-card .go:hover{border-color:var(--accent);color:var(--accent)}
+.nav-card .badge{font-size:10.5px;padding:1px 7px;border-radius:20px;white-space:nowrap;
+  background:rgb(var(--accent-rgb) / .15);color:var(--accent);border:1px solid rgb(var(--accent-rgb) / .4)}
+.nav-warn{background:rgb(var(--amber-rgb) / .1);border:1px solid rgb(var(--amber-rgb) / .4);color:var(--amber-text);
+  border-radius:8px;padding:9px 13px;margin-bottom:14px;font-size:12.5px;line-height:1.55}
+.nav-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+@media(max-width:640px){
+  .nav-card{padding:11px 12px;gap:10px}
+  .nav-card .ttl{font-size:14px}
+  .nav-card .rt{flex-direction:row;align-items:center}
+}
+
+/* '지금 어디' 화면에서는 헤더의 sticky 를 푼다.
+   ⚠️ 헤더(89px)가 카드(평균 110px)를 거의 통째로 덮을 수 있고, **그 영역의 클릭은 카드가 아니라
+      헤더가 받아버린다**(실측: elementFromPoint 가 header 안의 label.toggle 을 반환).
+      "눌러도 아무 반응이 없다"의 직접 원인이라 가림 자체를 없앤다.
+   ※ transform 으로 접는 방식은 sticky 와 겹쳐 계산이 항등행렬로 떨어져 동작하지 않았다(실측).
+      position 을 푸는 쪽이 단순하고 확실하다. 위로 스크롤하면 헤더가 그대로 돌아온다. */
+body.nav-page header{position:relative}
+
+/* ⚠️ 아래 두 규칙은 `.bdetail` 로 한정한다 — board.css 의 `.bdetail .bk{color:var(--dim)}` 와
+   특정도가 같은데 board.css 가 뒤에 로드돼 색을 뺏긴다(실측 2026-09-02: 안내 글자가
+   dim 으로 나왔다). 파일 순서에 기대지 않고 특정도로 이긴다. */
+
+/* 상태 마커가 없어진 탭의 안내 — cmux 가 아니라 대화 기록으로 판정 중이라는 사실을 드러낸다.
+   조용히 추정하지 않는다(이 저장소의 원칙: 근거를 함께 보여 준다). */
+.bdetail .bk.rename, .bk.rename{display:flex;align-items:center;gap:5px;color:var(--amber-text);
+  background:rgb(var(--amber-rgb) / .09);border:1px solid rgb(var(--amber-rgb) / .3);
+  border-radius:6px;padding:4px 7px;margin-top:4px;font-size:11px;line-height:1.45}
+
+/* 권한 대기 건수 — 0 일 때는 그냥 숫자, 1 이상이면 이 화면에서 제일 중요한 사실이다.
+   나머지와 같은 굵기로 적어 두면 눈이 그냥 지나간다. */
+.legend .perm{font-weight:400}
+.legend .perm.hot{font-weight:700;color:var(--amber);
+  background:rgb(var(--amber-rgb) / .14);border:1px solid rgb(var(--amber-rgb) / .45);
+  border-radius:20px;padding:1px 9px;margin-right:2px}
+
+/* 무엇을 묻고 있는지 — cmux 알림이 질문 전문과 선택지를 이미 담고 있는데 그동안 버리고 있었다.
+   여기 보여 주면 탭으로 건너가지 않고도 "지금 답해야 하나"를 판단할 수 있다. */
+.bdetail .bk.ask, .bk.ask{display:flex;gap:6px;align-items:flex-start;color:var(--amber-text);
+  background:rgb(var(--amber-rgb) / .10);border:1px solid rgb(var(--amber-rgb) / .32);
+  border-radius:6px;padding:6px 8px;margin-top:4px;font-size:11.5px;line-height:1.5;
+  white-space:pre-wrap;overflow-wrap:anywhere}
+.bdetail .bk.ask .lic, .bk.ask .lic{margin-top:2px}
+
+/* 세션 UUID 를 명령줄에서 못 읽은 탭 — 상태·활동의 근거가 그만큼 약하다.
+   경고(amber)가 아니라 중립(dim)으로 둔다: 대개 정상 동작이고, '틀렸다'가 아니라
+   '덜 확실하다'는 뜻이기 때문이다. */
+.bdetail .bk.weak, .bk.weak{display:flex;align-items:center;gap:5px;color:var(--dim);
+  border:1px dashed var(--border);border-radius:6px;padding:4px 7px;margin-top:4px;
+  font-size:11px;line-height:1.45}
+
+/* ── 좁혀 보기(창·워크스페이스 필터) ─────────────────────────────────────
+   필터는 화면에 흔적이 없는 상태다. 걸어 둔 걸 잊으면 "탭이 갑자기 사라졌다"가 되므로
+   걸린 게 있을 때만 목록 맨 위에 띠를 띄우고, 몇 개가 숨었는지까지 적는다. */
+.navfilter{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0 0 9px;
+  padding:6px 9px;border:1px solid var(--border);border-radius:9px;background:var(--panel)}
+.navfilter .fl{font-size:11px;color:var(--dim);font-weight:600}
+.navfilter .fn{font-size:11px;color:var(--dim)}
+.fchip{display:inline-flex;align-items:center;gap:4px;font:inherit;font-size:11.5px;
+  padding:3px 8px;border:1px solid var(--border);border-radius:999px;
+  background:var(--bg);color:var(--text);cursor:pointer;max-width:240px}
+.fchip .ft{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fchip .fx{color:var(--dim);font-weight:700;font-size:13px;line-height:1}
+.fchip:hover{border-color:var(--claude)}
+.fchip:hover .fx{color:var(--claude)}
+.fclear{font:inherit;font-size:11px;color:var(--dim);background:none;border:0;
+  cursor:pointer;margin-left:auto;text-decoration:underline;padding:2px 4px}
+.fclear:hover{color:var(--text)}
+
+/* 누를 수 있는 이름 — '클릭하면 좁혀진다'가 보이게 한다(발견성이 이 방식의 유일한 약점이다) */
+.bwin-head[data-win],.bws-head[data-wsf]{cursor:pointer}
+.bwin-head[data-win]:hover .wt,.bws-head[data-wsf]:hover b{text-decoration:underline}
+.bwin-head.fon,.bws-head.fon{outline:1.5px solid var(--claude);outline-offset:2px;border-radius:6px}
+.nav-card .fwin,.nav-card .fws{cursor:pointer}
+.nav-card .fwin:hover,.nav-card .fws:hover{text-decoration:underline;color:var(--claude)}
+
+/* 좁혀 보는 중 — 안 고른 창·워크스페이스는 **지우지 않고 헤더만 남긴다**.
+   지워 버리면 두 번째로 고를 대상이 화면에서 사라져 다중선택 자체가 불가능해진다
+   (첫 구현이 정확히 그랬다 — 필터 로직은 OR 인데 UI 가 하나밖에 못 고르게 했다). */
+.bwin.folded{flex:0 0 178px;max-width:178px;opacity:.6;padding-bottom:9px}
+.bwin.folded .bwin-head{border-bottom:0;margin-bottom:0;padding-bottom:2px}
+.bwin.folded .wt{font-size:12.5px}
+.bwin.folded:hover{opacity:1}
+.bws.folded{opacity:.58;margin-bottom:4px}
+.bws.folded .bws-head{padding-bottom:1px}
+.bws.folded:hover{opacity:1}
+
+/* 상태별 보기 전용 창 고르개 */
+.fpick{display:flex;align-items:center;gap:5px;flex-wrap:wrap;flex-basis:100%;margin-top:2px}
+.fchip.sm{padding:2px 8px;font-size:11px;opacity:.75}
+.fchip.sm.on{opacity:1;border-color:var(--claude);color:var(--claude)}
+
+/* 그룹도 같은 어법 — 안 고른 그룹은 헤더만 남는다 */
+.bgroup.folded{opacity:.6}
+.bgroup.folded:hover{opacity:1}
+.bgroup-head[data-grp]:hover b{text-decoration:underline}
+.bgroup-head.fon{outline:1.5px solid var(--claude);outline-offset:2px;border-radius:6px}
+.bgroup-head .caret{cursor:pointer;border-radius:3px}
+.bgroup-head .caret:hover{color:var(--text);background:rgb(var(--tint-rgb) / .12)}
+.nav-card .fgrp{cursor:pointer}
+.nav-card .fgrp:hover{text-decoration:underline;color:var(--claude)}
+
+/* 그룹 고정 — cmux 실제 상태를 바꾼다(사이드바에도 반영된다) */
+.gpin{background:none;border:0;padding:1px 3px;cursor:pointer;color:var(--dim);
+  border-radius:4px;line-height:0;opacity:0;transition:opacity .12s}
+.bgroup-head:hover .gpin,.gpin.on{opacity:1}
+.gpin.on{color:var(--gold, var(--amber))}
+.gpin:hover{background:rgb(var(--tint-rgb) / .14);color:var(--text)}
+
+/* 그룹 끌어 옮기기 — 놓을 자리를 선으로 알린다 */
+.bgroup-head[draggable="true"]{-webkit-user-drag:element}
+.bgroup.dropb{box-shadow:0 -2px 0 0 var(--claude)}
+.bgroup.dropa{box-shadow:0 2px 0 0 var(--claude)}
+.gordclear{font:inherit;font-size:11px;color:var(--dim);background:none;border:0;
+  cursor:pointer;text-decoration:underline;padding:2px 4px;margin-left:auto}
+/* 필터 칩과 함께 있을 땐 '모두 해제'가 맨 오른쪽을 맡는다 */
+.navfilter .fclear ~ .gordclear,.gordclear + .fclear{margin-left:6px}
+.gordclear:hover{color:var(--text)}
+
+/* 접힌 상태에서도 바로 갈 수 있는 이동 버튼 — 상세를 펼쳐야만 보이던 «이 탭으로 →» 때문에
+   두 번 눌러야 했다. 제목 줄 끝에 두되, 평소엔 숨기고 카드에 올렸을 때만 드러낸다
+   (항상 보이면 시각·배지와 뒤엉켜 카드가 시끄러워진다). 자리는 늘 차지해 레이아웃이 안 흔들린다. */
+.bcard .bgo{flex:none;width:20px;height:18px;padding:0;margin-left:2px;border:0;border-radius:5px;
+  background:none;color:var(--dim);cursor:pointer;opacity:0;transition:opacity .12s,color .12s;
+  display:inline-flex;align-items:center;justify-content:center}
+.bcard:hover .bgo{opacity:.85}
+.bcard .bgo:hover{opacity:1;color:var(--accent);background:rgb(var(--tint-rgb) / .16)}
+.bcard .bgo .lic{width:13px;height:13px}

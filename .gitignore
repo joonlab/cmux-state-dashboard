@@ -1,0 +1,12 @@
+.venv/
+data/
+__pycache__/
+*.pyc
+.DS_Store
+
+# 편집 전 백업본(로컬 보관용)
+static/*.bak-*
+
+# Swift 빌드 산출물
+menubar/.build/
+menubar/CmuxMinimap.app/

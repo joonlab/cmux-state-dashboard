@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  cmux 관제실 메뉴바 미니맵 — 로그인 시 자동 실행 (LaunchAgent)
+  설치:
+    cp packaging/com.joonlab.cmux-minimap.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.joonlab.cmux-minimap.plist
+  제거:
+    launchctl unload ~/Library/LaunchAgents/com.joonlab.cmux-minimap.plist
+    rm ~/Library/LaunchAgents/com.joonlab.cmux-minimap.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.joonlab.cmux-minimap</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/open</string>
+        <string>-a</string>
+        <string>/Applications/CmuxMinimap.app</string>
+    </array>
+    <key>RunAtLoad</key><true/>
+    <key>ProcessType</key><string>Interactive</string>
+</dict>
+</plist>
