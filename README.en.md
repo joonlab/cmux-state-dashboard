@@ -162,7 +162,7 @@ control         ← only when the socket is available (buttons disable otherwise
 # ② Finding things for you — monitoring
 
 With five windows and eighty tabs, the question isn't *what is running*.
-It's **where is the thing that makes zero progress until I look at it.**
+It's **which one is stopped, waiting on me.**
 
 ```
 permission   Claude is stopped, waiting for my approval. Nothing moves until I look.
