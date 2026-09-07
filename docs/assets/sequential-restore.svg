@@ -1,35 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 400" width="880" height="400" role="img"
      aria-label="한 번에 복원하면 CPU가 치솟아 다시 꺼지고, 하나씩 복원하면 낮게 유지되며 전부 살아서 도착한다">
   <style>
-    :root { color-scheme: light dark; }
-    .bg    { fill: #ffffff; }
-    .title { fill: #1b2430; font: 700 17px ui-sans-serif, -apple-system, "Pretendard", system-ui, sans-serif; }
-    .lab   { fill: #1b2430; font: 600 14px ui-sans-serif, -apple-system, "Pretendard", system-ui, sans-serif; }
-    .sub   { fill: #5b6673; font: 400 12px ui-sans-serif, -apple-system, "Pretendard", system-ui, sans-serif; }
-    .mono  { fill: #5b6673; font: 400 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
-    .rule  { stroke: #d8dee6; stroke-width: 1; }
-    .axis  { stroke: #b6c0cc; stroke-width: 1; }
-    .bad   { fill: #d94f4f; }
-    .badl  { stroke: #d94f4f; }
-    .good  { fill: #2fa06e; }
-    .goodl { stroke: #2fa06e; }
-    .badtx { fill: #c23b3b; font: 600 12.5px ui-sans-serif, -apple-system, "Pretendard", system-ui, sans-serif; }
-    .gootx { fill: #1f8a5c; font: 600 12.5px ui-sans-serif, -apple-system, "Pretendard", system-ui, sans-serif; }
-    @media (prefers-color-scheme: dark) {
-      .bg    { fill: #0d1117; }
-      .title { fill: #e7edf5; }
-      .lab   { fill: #e7edf5; }
-      .sub   { fill: #9aa7b4; }
-      .mono  { fill: #9aa7b4; }
-      .rule  { stroke: #2b3440; }
-      .axis  { stroke: #414d5c; }
-      .bad   { fill: #f0736f; }
-      .badl  { stroke: #f0736f; }
-      .good  { fill: #3cc492; }
-      .goodl { stroke: #3cc492; }
-      .badtx { fill: #f0736f; }
-      .gootx { fill: #3cc492; }
-    }
+    .bg { fill: #0d1117 }
+    .title { fill: #e7edf5; font: 700 17px ui-sans-serif, -apple-system, "Pretendard", system-ui, sans-serif }
+    .lab { fill: #e7edf5; font: 600 14px ui-sans-serif, -apple-system, "Pretendard", system-ui, sans-serif }
+    .sub { fill: #9aa7b4; font: 400 12px ui-sans-serif, -apple-system, "Pretendard", system-ui, sans-serif }
+    .mono { fill: #9aa7b4; font: 400 11.5px ui-monospace, SFMono-Regular, Menlo, monospace }
+    .rule { stroke: #2b3440 }
+    .axis { stroke: #414d5c }
+    .bad { fill: #f0736f }
+    .badl { stroke: #f0736f }
+    .good { fill: #3cc492 }
+    .goodl { stroke: #3cc492 }
+    .badtx { fill: #f0736f; font: 600 12.5px ui-sans-serif, -apple-system, "Pretendard", system-ui, sans-serif }
+    .gootx { fill: #3cc492; font: 600 12.5px ui-sans-serif, -apple-system, "Pretendard", system-ui, sans-serif }
   </style>
 
   <rect class="bg" x="0" y="0" width="880" height="400" rx="10"/>
