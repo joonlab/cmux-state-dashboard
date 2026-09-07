@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 400" width="880" height="400" role="img"
+     aria-label="한 번에 복원하면 CPU가 치솟아 다시 꺼지고, 하나씩 복원하면 낮게 유지되며 전부 살아서 도착한다">
+  <style>
+    :root { color-scheme: light dark; }
+    .bg    { fill: #ffffff; }
+    .title { fill: #1b2430; font: 700 17px ui-sans-serif, -apple-system, "Pretendard", system-ui, sans-serif; }
+    .lab   { fill: #1b2430; font: 600 14px ui-sans-serif, -apple-system, "Pretendard", system-ui, sans-serif; }
+    .sub   { fill: #5b6673; font: 400 12px ui-sans-serif, -apple-system, "Pretendard", system-ui, sans-serif; }
+    .mono  { fill: #5b6673; font: 400 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .rule  { stroke: #d8dee6; stroke-width: 1; }
+    .axis  { stroke: #b6c0cc; stroke-width: 1; }
+    .bad   { fill: #d94f4f; }
+    .badl  { stroke: #d94f4f; }
+    .good  { fill: #2fa06e; }
+    .goodl { stroke: #2fa06e; }
+    .badtx { fill: #c23b3b; font: 600 12.5px ui-sans-serif, -apple-system, "Pretendard", system-ui, sans-serif; }
+    .gootx { fill: #1f8a5c; font: 600 12.5px ui-sans-serif, -apple-system, "Pretendard", system-ui, sans-serif; }
+    @media (prefers-color-scheme: dark) {
+      .bg    { fill: #0d1117; }
+      .title { fill: #e7edf5; }
+      .lab   { fill: #e7edf5; }
+      .sub   { fill: #9aa7b4; }
+      .mono  { fill: #9aa7b4; }
+      .rule  { stroke: #2b3440; }
+      .axis  { stroke: #414d5c; }
+      .bad   { fill: #f0736f; }
+      .badl  { stroke: #f0736f; }
+      .good  { fill: #3cc492; }
+      .goodl { stroke: #3cc492; }
+      .badtx { fill: #f0736f; }
+      .gootx { fill: #3cc492; }
+    }
+  </style>
+
+  <rect class="bg" x="0" y="0" width="880" height="400" rx="10"/>
+
+  <text class="title" x="28" y="36">복원이 컴퓨터를 죽이는 이유 — 그리고 하나씩 여는 이유</text>
+  <line class="rule" x1="28" y1="52" x2="852" y2="52"/>
+
+  <!-- ── 위: 한 번에 ─────────────────────────────────────────── -->
+  <text class="lab"  x="28" y="86">한 번에 <tspan class="sub">— cmux 기본 복원</tspan></text>
+  <text class="mono" x="28" y="106">창 7 · 워크스페이스 60 · 탭 100 을 동시에 기동</text>
+
+  <!-- 동시 기동 블록 -->
+  <g>
+    <rect class="bad" x="28" y="120" width="252" height="26" rx="4" opacity=".85"/>
+    <text class="mono" x="154" y="138" text-anchor="middle" fill="#ffffff" font-weight="600">전부 · 동시에</text>
+  </g>
+
+  <!-- CPU 곡선 (급등) -->
+  <g transform="translate(320,112)">
+    <line class="axis" x1="0" y1="42" x2="330" y2="42"/>
+    <line class="axis" x1="0" y1="42" x2="0" y2="0"/>
+    <text class="mono" x="-6" y="6" text-anchor="end">100%</text>
+    <path class="badl" fill="none" stroke-width="2.5"
+          d="M0,42 L18,40 L34,34 L48,20 L62,6 L200,4 L215,42"/>
+    <circle class="bad" cx="215" cy="42" r="4"/>
+    <text class="badtx" x="224" y="46">강제 종료</text>
+  </g>
+
+  <text class="mono" x="28" y="176">→ 팬이 뜨거워지다 꺼진다 → 재부팅 → cmux 가 또 전부 복원 → 또 꺼진다</text>
+  <text class="badtx" x="28" y="196">이걸 세 번 반복하고 나서야 컴퓨터가 고장난 게 아님을 알았다</text>
+
+  <line class="rule" x1="28" y1="218" x2="852" y2="218"/>
+
+  <!-- ── 아래: 하나씩 ────────────────────────────────────────── -->
+  <text class="lab"  x="28" y="252">하나씩 <tspan class="sub">— 관제실의 선택 복원</tspan></text>
+  <text class="mono" x="28" y="272">고른 것만 · 워크스페이스를 순차로 하나씩</text>
+
+  <!-- 순차 블록 -->
+  <g>
+    <rect class="good" x="28"  y="286" width="38" height="26" rx="4" opacity=".85"/>
+    <rect class="good" x="76"  y="286" width="38" height="26" rx="4" opacity=".85"/>
+    <rect class="good" x="124" y="286" width="38" height="26" rx="4" opacity=".85"/>
+    <rect class="good" x="172" y="286" width="38" height="26" rx="4" opacity=".85"/>
+    <rect class="good" x="220" y="286" width="38" height="26" rx="4" opacity=".85"/>
+    <text class="mono" x="266" y="304">…</text>
+  </g>
+
+  <!-- CPU 곡선 (완만) -->
+  <g transform="translate(320,278)">
+    <line class="axis" x1="0" y1="42" x2="330" y2="42"/>
+    <line class="axis" x1="0" y1="42" x2="0" y2="0"/>
+    <text class="mono" x="-6" y="6" text-anchor="end">100%</text>
+    <path class="goodl" fill="none" stroke-width="2.5"
+          d="M0,42 L22,30 L44,38 L66,29 L88,38 L110,30 L132,38 L154,31 L176,38 L198,32 L220,38 L242,33 L264,38 L286,34 L310,38"/>
+    <circle class="good" cx="310" cy="38" r="4"/>
+    <text class="gootx" x="320" y="42">전부 도착</text>
+  </g>
+
+  <text class="mono" x="28" y="342">→ claude 자동 실행은 <tspan font-weight="700">배치당 12개 상한</tspan>. 초과분은 resume 바인딩만 걸고 사람이 나중에 실행한다.</text>
+  <text class="mono" x="28" y="362">→ 한 그룹이 실패해도 배치를 죽이지 않는다. 화면은 <tspan font-weight="700">한 번에 4~12개</tspan>를 권하고, 넘기면 경고한다.</text>
+  <text class="sub"  x="28" y="384">복원은 «되살리는 일»이면서 동시에 «죽이지 않는 일»이다 — 이 도구가 태어난 사고가 정확히 후자였다.</text>
+</svg>

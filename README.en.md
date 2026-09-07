@@ -2,10 +2,11 @@
 
 # cmux Control Room
 
-**When you run dozens of Claude Code sessions at once, this finds the one that is waiting on you.**
+**When you run dozens of Claude Code sessions at once, this finds the one that is waiting on you —
+and brings back what you lost without killing the machine a second time.**
 
 See every window, workspace, group and tab in [cmux](https://cmux.com) — and every Claude Code
-session inside them — **on one screen. Rearrange them from there. Bring them back when they're gone.**
+session inside them — **on one screen. Rearrange them from there. After a crash, restore only what you pick.**
 
 [한국어](README.md) · [Development history](docs/HISTORY.md) · [cmux field notes](docs/CMUX-NOTES.md)
 
@@ -22,28 +23,143 @@ All synthetic — <code>python run_demo.py</code> gives you this exact screen ri
 
 ## Why this exists
 
+**① Every open session died.**
+
 It started on 2026-07-02 with a report, not a feature request:
 
 > **"You know those cmux workspaces and tabs I had open? The Claude Code sessions that were
 > running in them all died. Can I get them back?"**
 
-Yes — because cmux had already written `claude --resume <session-id>` to disk for every tab.
-Eight minutes later came the actual spec, and the first version shipped that night.
+Yes — because cmux had **already written `claude --resume <session-id>` to disk** for every tab.
+The mapping of which tab was which session was in a file from the start.
 
-Then the tool changed identity **three times**.
+**② So we restored them — and this time the restore killed the machine.**
 
-| | What it was | What it became | The line that caused it |
-|---|---|---|---|
-| **Jul 6** | A table of resume commands to copy-paste | **Something that restores the layout itself** | *"not just restoring Claude sessions — I want my window / workspace / tab / browser layout preserved so I can selectively bring back exactly what I want"* |
-| **Aug 22** | A recovery tool you open after an accident | **A control tool you open having lost nothing** | *"with this many interfaces, when I'm running several things at once I can't tell which Claude response I'm supposed to look at"* |
-| **Aug 26** | A read-only dashboard | **A control surface that actually moves cmux** | *"drag the board to change the real cmux arrangement. Design undo first."* |
+cmux comes back like a browser: **it revives everything that was open.** But this screen had
+**7 windows, 60 workspaces and 100 tabs.**
 
-After the third one it was renamed from "State & Recovery Dashboard" to **"Control Room"** —
-on the user's own reasoning: *"it has become a cmux management tool itself, so the name needs to change."*
+> *"All of it boots at once on restart, so it keeps dying every time it restarts. (…)
+> **It happened about three times before I wondered whether the computer was broken** — the fan
+> would spin up and it would shut down, and the timing lined up exactly with cmux opening."*
+
+And there is the real starting point of this tool:
+
+> *"If cmux can restore the workspaces, windows, tabs and groups exactly as they were, then
+> **that state must be saved somewhere.** Which means **I could restore only the ones I want.**"*
+
+**Restoring everything is what cmux already does. That is the thing that kills you.
+What was missing was "only what I pick, without killing the machine."**
+
+<sub>The tool then changed identity three more times — copy-paste table → layout restore (Jul 6) →
+always-on monitoring (Aug 22) → cmux control surface (Aug 26). Full story in
+<a href="docs/HISTORY.md">the development history</a>.</sub>
 
 ---
 
-## The real problem it solves — "blocked"
+## It does two jobs
+
+| | What | When you open it |
+|---|---|---|
+| **① Brings things back** | Return to the moment before the crash and restore **only what you choose** | Force quit, reboot, closed something by mistake |
+| **② Finds things for you** | Among dozens of tabs, **the one waiting on you** | All day, left open |
+
+The author considers **①** the more important of the two — *"more important than that, to me, is…"*
+So this README starts there too.
+
+---
+
+# ① Bringing things back — recovery
+
+## Snapshots accumulate on their own
+
+It polls every 30 seconds and writes a snapshot **when something changed** — windows, workspaces,
+groups and tabs, and also **split ratios and orientation, browser URLs, workspace colours and pins,
+and the claude resume command.**
+
+> *"On macOS most people don't shut down — they sleep and wake. But if you keep going long enough,
+> **after a week or two you get an unexpected force quit often enough** that I wanted something
+> that could put it back right away…"*
+
+Older snapshots get sparser, **but never disappear** — last 7 days in full / hourly to 30 days /
+every 4 hours before that / milestones forever. With zlib on top:
+**21,284 rows at 2.51 GB → 7,003 rows at 0.25 GB.**
+
+<sub>This came from a report that "old snapshots aren't visible." It wasn't a display problem —
+<b>a flat 30-day cut was deleting one day's worth every day.</b> Adding pagination alone would have
+produced "you can see everything, and the old ones are already gone."</sub>
+
+## Only what you pick
+
+<div align="center">
+
+![Recovery tab — snapshot picker, per-window columns, minimaps, nested checkboxes](docs/assets/tab-recovery.png)
+
+</div>
+
+Pick a snapshot and that moment unfolds as **window > group > workspace > tab**. Each workspace's
+**minimap** draws the split layout as it was, and the checkboxes nest — a whole window, a group,
+a single workspace, or one tab inside it.
+
+> *"That structure comes back exactly — **restore this window, restore just the workspaces,
+> restore just the group** — whatever I selected, with Claude auto-start."*
+
+**This is the one tab that was never compacted.** Everywhere else cards collapse to a single line;
+here the minimap stays, because *seeing the split layout and choosing from it is the point of this screen*.
+
+- Restore **into a new window or the current one**
+- Anything already alive is **filtered out automatically** (claude by *is it running*, browsers by *is that URL open*)
+- Restored items are remembered and hidden — **only what is actually gone** stays in the list
+- Whatever isn't restored still offers **a copyable `claude --resume`**
+
+## ★ And it does not open them all at once
+
+<div align="center">
+
+![Opening everything at once spikes the CPU and dies again; opening one at a time stays low and all arrive](docs/assets/sequential-restore.svg)
+
+</div>
+
+> *"The reason I **deliberately put a pause between them and open them one at a time** is that
+> the moment they all open at once, the thing heats up, **CPU usage spikes, and you get lag or
+> another force quit.**"*
+
+A restore is **as much about not killing the machine as it is about bringing things back.**
+The accident that created this tool was precisely the latter.
+
+| Guard | Value | Why |
+|---|---|---|
+| Workspace creation | **Sequential** — one at a time | Pouring them in as a batch *is* cmux's default restore |
+| claude auto-start | **12 per batch** (`MAX_CLAUDE_AUTORUN`) | One claude process is hundreds of MB. Anything over the cap gets **the resume binding only**, to be started by hand later |
+| Older item-level path | cap of 8 | ditto |
+| On-screen guidance | **4–12 workspaces at a time**, warns above that | The warning only helps at the moment you're choosing |
+| Failure isolation | One group failing **does not kill the batch** | Don't lose the rest because of one |
+
+## It recovers even when the dashboard is down
+
+Every snapshot also writes an **independent backup**.
+
+```bash
+cat data/latest-recovery.txt      # human-readable recovery table — resume command per workspace
+```
+
+The read and recover paths **work 100% from files alone** — no cmux socket, no running dashboard.
+This was settled on day one: **turning on socket control requires restarting cmux, which is
+precisely the accident this tool exists to prevent.**
+
+```
+read / recover  ← files are enough
+   ~/Library/Application Support/cmux/session-*.json   windows, workspaces, splits, resume commands
+   ~/.claude/projects/**/*.jsonl                        session labels, last utterance
+   ps -E                                                CMUX_PANEL_ID + --session-id
+   notification-feed-history-*.json                     Waiting / Permission / Completed
+
+control         ← only when the socket is available (buttons disable otherwise)
+   tree --all --json · surface.focus · workspace.group.* · new-workspace --layout
+```
+
+---
+
+# ② Finding things for you — monitoring
 
 With five windows and eighty tabs, the question isn't *what is running*.
 It's **where is the thing that makes zero progress until I look at it.**
@@ -58,8 +174,14 @@ waiting      Turn finished, sitting at the prompt. The work is already done.
 idle         Quiet.
 ```
 
-The first two are **"blocked."** The header count, the `(4)` in the browser tab title, and the
-menu-bar badge are all that same sum. They aren't split into separate numbers for one reason —
+The first two are **"blocked."**
+
+> *"A moment where a tool needs **my permission**, or where **AskUserQuestion has been used and
+> it's waiting for my answer** (…) when my intervention is needed **a lock mark appears**, and
+> from there I can click straight back into it."*
+
+The header count, the `(4)` in the browser tab title, and the menu-bar badge are all that same sum.
+They aren't split into separate numbers for one reason —
 **splitting them blurs "how many things are waiting on me right now."**
 
 The definition lives in exactly **one dictionary** in `nav.py`; sort order and the definition of
@@ -83,11 +205,39 @@ nowhere else — this has to be the only thing moving on screen for it to mean a
 > "in motion" while a human eye reads it as stopped.
 > **The test had to be "you can see it move," not "it is moving."** ([the whole story](docs/HISTORY.md))
 
----
+## 🖥 Menu-bar minimap — so you don't have to open the dashboard
 
-## The screens
+<div align="center">
 
-### 🎯 Where am I — which window and tab each live Claude session is in
+<img src="docs/assets/menubar.png" width="480" alt="Menu bar badge and popover">
+
+</div>
+
+The web dashboard is **a place you have to go and look at**, and blocked is **the state you never
+learn about unless you hunt for it**. That mismatch is what produced the menu-bar app. If the
+bouncing card was an attempt to catch your eye without being hunted for, the badge is an attempt to
+**not need the dashboard open at all**.
+
+> *"You can also **see what's running right now, right there in the menu bar.**"*
+
+- **Badge = blocked N.** If nothing is blocked, the running count in green; if only background work
+  remains, a gold bolt; otherwise `zzz`.
+- **Popover** = status summary + blocked / running / background list (**grouped by cmux group**) +
+  click to jump to that tab.
+- **It does not decide status.** It only carries what `/api/nav` gave it — including the order and
+  the definition of "blocked."
+
+```bash
+cd menubar && bash scripts/bundle.sh release && open ./CmuxMinimap.app
+# different port:  CMUXMM_PORT=7801 open ./CmuxMinimap.app --args
+```
+
+> The app draws only its own status item and talks only to `127.0.0.1` — no TCC, no local-network
+> permission, ad-hoc signing is enough. The `.app` bundle is needed for `LSUIElement`, not for
+> permissions. See [menubar/README.md](menubar/README.md), which records the measured incident where
+> **a full menu bar makes macOS silently push your icon to the far left where the app menu covers it.**
+
+## 🎯 Where am I — which window and which tab
 
 <div align="center">
 
@@ -123,6 +273,9 @@ to tool results too, which empties the preview entirely.
 
 </div>
 
+> *"If I'm looking at this and I click it, I go straight back to that job and answer it (…)
+> **I click 'go to this tab' and I'm in that tab**, working."*
+
 A single `surface.focus` does **window switch + workspace switch + tab select** — even for a hidden
 workspace in another window. On top of that, `open -a` raises **cmux.app to the front of macOS**.
 Without that step the tab has moved but the screen hasn't, so *"it just says it moved and I still
@@ -132,7 +285,11 @@ The result is **self-verified**. If it doesn't match, you get `didn't move — c
 surface:NNN` instead of a success message. Showing only success is how people end up trusting a
 screen that is lying.
 
-### ✏️ Edit mode — drag to change the real cmux arrangement
+---
+
+# Everything else
+
+## ✏️ Edit mode — drag to change the real cmux arrangement
 
 <div align="center">
 
@@ -154,16 +311,13 @@ cmux lies quietly in three ways here, and all three are handled by **not trustin
 | Group membership is decided by **contiguous sidebar position**, not by groupId | Position → membership → position, **two passes**. Otherwise the neighbouring group's anchor absorbs your members |
 | `after_group_id` — and pinned groups — **return OK without moving** | Compares anchor-workspace indices directly to decide `moved` |
 
-### Current · History · Recovery · Session health
+## Current · History · Session health
 
 <table>
 <tr>
-<td width="50%"><a href="docs/assets/tab-current.png"><img src="docs/assets/tab-current.png" alt="Current tab — live tree"></a><br><b>Current</b> — live tree joining structure (<code>/api/state</code>) with status (<code>/api/nav</code>), with a copy button for each <code>claude --resume</code>.</td>
-<td width="50%"><a href="docs/assets/tab-recovery.png"><img src="docs/assets/tab-recovery.png" alt="Recovery tab — minimaps and nested checkboxes"></a><br><b>Recovery</b> — pick a snapshot and restore <b>item by item</b>. This is the one tab that was never compacted: <b>seeing the split layout and choosing from it is the point of this screen.</b></td>
-</tr>
-<tr>
-<td><a href="docs/assets/tab-history.png"><img src="docs/assets/tab-history.png" alt="History tab"></a><br><b>History</b> — snapshots from 30s polling plus change detection. Open one, diff it against now.</td>
-<td><a href="docs/assets/tab-health.png"><img src="docs/assets/tab-health.png" alt="Session health tab"></a><br><b>Session health</b> — sessions that have been quiet a long time, with their memory. <b>There is deliberately no kill button</b> — you read the list and do it in a terminal.</td>
+<td width="33%"><a href="docs/assets/tab-current.png"><img src="docs/assets/tab-current.png" alt="Current tab — live tree"></a><br><b>Current</b> — live tree joining structure (<code>/api/state</code>) with status (<code>/api/nav</code>), with a copy button for each <code>claude --resume</code>.</td>
+<td width="33%"><a href="docs/assets/tab-history.png"><img src="docs/assets/tab-history.png" alt="History tab"></a><br><b>History</b> — the snapshot timeline. Open one and <b>diff it against now</b> to see what disappeared.</td>
+<td width="33%"><a href="docs/assets/tab-health.png"><img src="docs/assets/tab-health.png" alt="Session health tab"></a><br><b>Session health</b> — sessions quiet for a long time, with their memory. <b>There is deliberately no kill button</b> — you read the list and do it in a terminal.</td>
 </tr>
 </table>
 
@@ -175,38 +329,6 @@ Light/dark is **three states, not two** (`system → light → dark`).
 ![Light theme](docs/assets/board-light.png)
 
 </div>
-
----
-
-## 🖥 Menu-bar minimap (native Swift)
-
-<div align="center">
-
-<img src="docs/assets/menubar.png" width="480" alt="Menu bar badge and popover">
-
-</div>
-
-The web dashboard is **a place you have to go and look at**, and blocked is **the state you never
-learn about unless you hunt for it**. That mismatch is what produced the menu-bar app. If the
-bouncing card was an attempt to catch your eye without being hunted for, the badge is an attempt to
-**not need the dashboard open at all**.
-
-- **Badge = blocked N.** If nothing is blocked, the running count in green; if only background work
-  remains, a gold bolt; otherwise `zzz`.
-- **Popover** = status summary + blocked / running / background list (**grouped by cmux group**) +
-  click to jump to that tab.
-- **It does not decide status.** It only carries what `/api/nav` gave it — including the order and
-  the definition of "blocked."
-
-```bash
-cd menubar && bash scripts/bundle.sh release && open ./CmuxMinimap.app
-# different port:  CMUXMM_PORT=7801 open ./CmuxMinimap.app --args
-```
-
-> The app draws only its own status item and talks only to `127.0.0.1` — no TCC, no local-network
-> permission, ad-hoc signing is enough. The `.app` bundle is needed for `LSUIElement`, not for
-> permissions. See [menubar/README.md](menubar/README.md), which records the measured incident where
-> **a full menu bar makes macOS silently push your icon to the far left where the app menu covers it.**
 
 ---
 
@@ -231,7 +353,7 @@ To change what it shows, edit [`demo_fixture.py`](demo_fixture.py) and nothing e
 groups, workspaces and tabs are a list of tuples in there. Times are stored as `ago` seconds and
 converted per request, so **"8 seconds ago" is alive whenever you open it.**
 
----
+> ⚠️ The demo **does not read your cmux, does not touch it, and does not create a database.**
 
 ## Pointing it at real cmux
 
@@ -251,28 +373,23 @@ Every tab has its own URL — `/now` `/current` `/history` `/recovery` `/health`
 (standalone fullscreen, for a phone or a second monitor). Refresh, bookmark and back all return you
 to that tab.
 
-### It works 100% without the socket — the root of the design
-
-This was settled on day one, after twenty minutes of failing to reach the cmux socket from pm2.
-**Turning on socket control requires restarting cmux — which is precisely the accident this tool exists to prevent.**
-
-```
-read / recover  ← files are enough
-   ~/Library/Application Support/cmux/session-*.json   windows, workspaces, splits, resume commands
-   ~/.claude/projects/**/*.jsonl                        session labels, last utterance
-   ps -E                                                CMUX_PANEL_ID + --session-id
-   notification-feed-history-*.json                     Waiting / Permission / Completed
-
-control         ← only when the socket is available (buttons disable otherwise)
-   tree --all --json · surface.focus · workspace.group.* · new-workspace --layout
-```
-
 **No hook installation is needed** to map sessions to tabs. cmux sets `CMUX_PANEL_ID`
 (= surface UUID) in the environment and passes `--session-id` on the command line, so a single
 `ps -E` reads both and joins them against the tree — **exactly, with no guessing.**
 
-There is an independent backup too: every snapshot writes `data/latest-recovery.{json,txt}`.
-**Even with the dashboard down**, `cat data/latest-recovery.txt` gets you back.
+### 🧰 Saving a layout to a file, permanently
+
+If the dashboard's snapshots are **a record that accumulates by itself**, this is **naming the
+arrangement you have right now and keeping it.** Save it, close the originals to reclaim resources,
+and bring it back later exactly as it was.
+
+```bash
+python3 tools/cmux-snapshot.py save --label release-work --note "before the v2 deploy"
+python3 tools/cmux-snapshot.py restore latest --target new --dry-run
+```
+
+The restore engine **reuses the dashboard's `restore.restore_layout_windows()` as is** — two copies
+would mean two copies of every bug, and you would only ever fix one. → [tools/README.md](tools/README.md)
 
 ---
 
@@ -307,10 +424,7 @@ swallowed it — so it concluded **"0 running"** and relaunched everything. Pars
 output as bytes with `errors="replace"`.
 
 **📉 "I can't see it" is not necessarily a UI bug.**
-"Old snapshots aren't visible" turned out to be **a flat 30-day cut deleting one day's worth every
-day.** Adding pagination alone would have produced "you can see everything, and the old ones are
-already gone." → Tiered retention (7 days full / hourly to 30 / 4-hourly beyond / milestones forever)
-plus zlib: **21,284 rows at 2.51 GB → 7,003 rows at 0.25 GB.**
+"Old snapshots aren't visible" turned out to be **a flat 30-day cut deleting one day's worth every day.**
 
 **🧯 `max_memory_restart` is a leak backstop, not a throttle on normal peaks.**
 150MB limit against a measured 145MB peak — 3% headroom. The app restarted every 30 seconds, and
@@ -338,13 +452,14 @@ nav.py              "where am I" collection + status decision  ← STATUS_ORDER 
 cmux_client.py      cmux CLI/socket wrapper (incl. password self-heal)
 snapshotter.py      normalise · hash · snapshot · independent backup
 layout.py           native session JSON → split tree parser
-restore.py          faithful layout restore (shared by the dashboard and the CLI skill)
+restore.py          faithful layout restore · sequential creation · OOM budget   ← the heart of recovery
 claude_index.py     label / cwd / activity extraction from .jsonl
 db.py               SQLite (tiered retention · zlib)
 demo.py             demo mode — synthetic state in the real API's shape
 demo_fixture.py     its data. Edit this alone to change the demo
 static/             single-page UI (tokens.css is the only source of colour)
 menubar/            Swift menu-bar minimap
+tools/              layout archive CLI (shares restore.py)
 ```
 
 ## Requirements
@@ -362,11 +477,20 @@ menubar/            Swift menu-bar minimap
   a few of the original commits carried client and personal names and were not published.)
 - **[cmux field notes](docs/CMUX-NOTES.md)** — undocumented cmux behaviour, learned by hitting it.
 - **[Menu-bar minimap](menubar/README.md)** — the Swift app and the menu-bar saturation incident.
+- **[tools/](tools/README.md)** — the layout archive and restore CLI.
 
 ## License
 
 [MIT](LICENSE)
 
-<sub>This tool was built with [Claude Code](https://claude.com/claude-code), to manage Claude Code
+---
+
+> *"If you build this kind of collection setup **for state restoration of a tool you use all the
+> time**, then when something unexpected happens you can go back to the environment you had
+> backed up and keep using it…"*
+>
+> <sub>— introducing this tool at Monthly CMDS #20</sub>
+
+<sub>This tool was built with <a href="https://claude.com/claude-code">Claude Code</a>, to manage Claude Code
 sessions. Commit messages and code comments carry measured numbers and the traps that were stepped
 in, because <b>that is the information you most wish you had when you dig at the same spot again.</b></sub>
