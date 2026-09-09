@@ -374,7 +374,7 @@ def restore_layout_windows(layout_windows, selections=None, target="new", autoru
     공유하는 단일 오케스트레이션**(여기만 고치면 양쪽 다 반영 — 로직 이원화 금지).
 
     selections: [{"wsId":str, "panelIds":[str]|None}, ...] · None 이면 전체 워크스페이스·전체 패널.
-    target: "new"=새 창 1개에 모음 / "current"=현재 활성 창.
+    target: "new"=**원본 창 하나당 새 창 하나** / "current"=현재 활성 창(전부 거기 모음).
     autorun: claude 자동 실행(레이아웃 command 방식). 배치 상한 MAX_CLAUDE_AUTORUN.
     반환: {"results","workspaces","restored","groups","autorunInjected","doneKeys"}
     ValueError: 복원 대상이 하나도 없을 때.
@@ -413,23 +413,29 @@ def restore_layout_windows(layout_windows, selections=None, target="new", autoru
     running_sids = cmux_client.running_claude_sids() if autorun else set()
     results, groups_made, group_reconcile = [], 0, []
 
-    default_ws = None
-    if target == "current":
-        win_ref = cmux_client.current_window_id()
-    else:
-        try:
-            _o, win_ref = cmux_client.new_window()
-        except cmux_client.CmuxError:
-            win_ref = None
-        default_ws = window_default_workspace(win_ref)   # 새 창의 빈 기본 워크스페이스
-        # 그룹(group.create)은 caller 의 "현재 창"에 생기므로 새 창을 current 로 만들어 둔다.
-        if default_ws:
-            try:
-                cmux_client.select_workspace(default_ws)
-            except cmux_client.CmuxError:
-                pass
+    # ★ 원본 창 하나당 새 창 하나. 예전에는 이 창 생성이 **루프 밖**에 있어서, 원본이 창 두 개여도
+    #   새 창은 하나만 만들어지고 두 창의 워크스페이스가 한 창에 뒤섞였다(그 결과 그룹 순서도
+    #   원본과 달라진다 — 다른 창의 그룹이 중간에 끼어든다). 엔드포인트 docstring 은 처음부터
+    #   "원본 창별로 새 cmux 창 1개"를 약속하고 있었는데 구현이 따라가지 않았다(2026-09-09).
+    default_wss = []                       # 창마다 생기는 빈 기본 워크스페이스(마지막에 정리)
+    cur_win = cmux_client.current_window_id() if target == "current" else None
 
     for wi, ws_list in by_win.items():
+        if target == "current":
+            win_ref = cur_win
+        else:
+            try:
+                _o, win_ref = cmux_client.new_window()
+            except cmux_client.CmuxError:
+                win_ref = None
+            dws = window_default_workspace(win_ref)
+            # 그룹(group.create)은 caller 의 "현재 창"에 생긴다 → 방금 만든 창을 current 로.
+            if dws:
+                default_wss.append(dws)
+                try:
+                    cmux_client.select_workspace(dws)
+                except cmux_client.CmuxError:
+                    pass
         ws_list.sort(key=lambda t: t[0].get("wsIndex", 0))   # 원래 순서 유지
         grouped, ungrouped = OrderedDict(), []
         for ws, selset in ws_list:
@@ -463,14 +469,19 @@ def restore_layout_windows(layout_windows, selections=None, target="new", autoru
     # 그룹 멤버십 재확정: cmux 멤버십은 사이드바 "위치" 기반이라 연속 생성 시 뒤 그룹 anchor 가
     #   앞 그룹 멤버를 흡수한다 → 전 생성 후 group.add(UUID)로 위치 무관 명시 재배정(2패스).
     if group_reconcile:
-        try:
-            tree = cmux_client.system_tree()
-            ref2uuid = {ws.get("ref"): ws.get("id")
-                        for w in tree.get("windows", []) for ws in w.get("workspaces", [])
-                        if ws.get("ref")}
-        except cmux_client.CmuxError:
-            ref2uuid = {}
+        def _ref2uuid():
+            try:
+                tree = cmux_client.system_tree()
+            except cmux_client.CmuxError:
+                return {}
+            return {ws.get("ref"): ws.get("id")
+                    for w in tree.get("windows", []) for ws in w.get("workspaces", [])
+                    if ws.get("ref")}
         for _pass in range(2):
+            # ⚠️ **패스마다 다시 읽는다.** group.add 는 워크스페이스 위치를 바꾸고, 그러면
+            #    ref(workspace:N)가 시프트된다(이 파일 위쪽 주석이 경고하는 그것). 한 번 읽어
+            #    두고 재사용하면 두 번째 패스부터 엉뚱한 워크스페이스를 그룹에 넣게 된다.
+            ref2uuid = _ref2uuid()
             for gid, refs in group_reconcile:
                 for ref in refs:
                     uuid = ref2uuid.get(ref)
@@ -484,11 +495,12 @@ def restore_layout_windows(layout_windows, selections=None, target="new", autoru
     autorun_injected = (MAX_CLAUDE_AUTORUN - budget["n"]) if autorun else 0
 
     # 새 창 모드에서만 빈 기본 워크스페이스 닫기(복원분이 있으면 비-마지막이라 성공).
-    if default_ws and any(r.get("ok") for r in results):
-        try:
-            cmux_client.close_workspace(default_ws)
-        except cmux_client.CmuxError:
-            pass
+    if any(r.get("ok") for r in results):
+        for dws in default_wss:
+            try:
+                cmux_client.close_workspace(dws)
+            except cmux_client.CmuxError:
+                pass
 
     return {"results": results, "workspaces": len(results),
             "restored": sum(1 for r in results if r.get("ok")),
