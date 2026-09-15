@@ -13,8 +13,21 @@ final class StatusItemController {
 
     init() {
         popover.behavior = .transient
-        popover.contentViewController = NSHostingController(
+        let host = NSHostingController(
             rootView: PopoverView(client: client, onJump: { [weak self] in self?.close() }))
+        // ★ 이 한 줄이 없으면 팝오버가 **메뉴바에서 한참 아래에** 뜬다(신고 2026-09-15).
+        //
+        //   NSPopover 는 띄울 자리를 contentViewController 의 `preferredContentSize` 로 계산하는데,
+        //   NSHostingController 는 그 값을 **(0,0) 으로 둔다**(SwiftUI 가 나중에 제 크기를 잡으므로).
+        //   그래서 크기를 모르는 채 자리를 정하고, 뒤늦게 내용이 커지면 **창 크기만 바뀌고 위치는
+        //   그대로**다. 실측(이 맥, macOS 26):
+        //     · 미적용  popover.origin.y = 608 고정 → 버튼 아래와 **205pt** 벌어짐
+        //               (내용 높이를 60·110·300·500 으로 바꿔도 y 는 608 그대로 = 아래가 붙박이)
+        //     · 적용    popover.maxY ≈ 949 = 메뉴바 바로 아래 (높이 420 짜리도 똑같이 붙는다)
+        //   contentSize 를 손으로 박아도 고쳐지지만, 내용이 5초마다 바뀌는 화면이라
+        //   **크기를 계속 따라가는** sizingOptions 가 맞다(macOS 13+).
+        host.sizingOptions = .preferredContentSize
+        popover.contentViewController = host
 
         // 자리와 위치를 **명시적으로** 요구한다.
         // 메뉴바가 포화 상태면 macOS 는 새 status item 을 조용히 안 그린다(윈도우조차 안 만든다).
@@ -46,6 +59,33 @@ final class StatusItemController {
         render(nil)
         client.start()
         if ProcessInfo.processInfo.environment["CMUXMM_DEBUG"] != nil { debugDump() }
+        if ProcessInfo.processInfo.environment["CMUXMM_SELFTEST"] != nil { selfTest() }
+    }
+
+    /// 팝오버가 **메뉴바에 제대로 붙었는지** 재고 끝낸다(`CMUXMM_SELFTEST=1`).
+    ///
+    /// 눈으로는 "좀 아래 뜬다"까지밖에 못 보는 문제라, 숫자로 남기지 않으면 고쳤는지도 알 수 없다.
+    /// 판정: 팝오버 위쪽 모서리가 버튼창 아래와 맞닿아야 한다(겹침 몇 pt 는 화살표 자리라 정상).
+    private func selfTest() {
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1))
+            guard let b = item.button, let w = b.window else {
+                FileHandle.standardError.write(Data("SELFTEST: status item 창 없음\n".utf8))
+                NSApp.terminate(nil); return
+            }
+            popover.show(relativeTo: b.bounds, of: b, preferredEdge: .minY)
+            try? await Task.sleep(for: .milliseconds(600))
+            let pf = popover.contentViewController?.view.window?.frame
+            let gap = pf.map { w.frame.minY - $0.maxY }
+            var s = "SELFTEST button.window=\(w.frame)\n"
+            s += "SELFTEST popover=\(pf.map { String(describing: $0) } ?? "nil")\n"
+            s += "SELFTEST gap=\(gap.map { String(format: "%.0f", $0) } ?? "-")pt "
+            s += (gap.map { $0 <= 8 && $0 >= -12 } ?? false) ? "→ PASS(메뉴바에 붙음)\n"
+                                                            : "→ FAIL(떨어져 있음)\n"
+            FileHandle.standardError.write(Data(s.utf8))
+            popover.performClose(nil)
+            NSApp.terminate(nil)
+        }
     }
 
     /// 자리를 실제로 얻었는지 확인용 — status item 이 '있는데 안 보이는' 상태를 구별한다.

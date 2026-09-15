@@ -53,6 +53,13 @@ STATUS_ORDER = {"permission": 0, "question": 0, "running": 1, "background": 2,
                 "waiting": 3, "idle": 4, "unknown": 5}
 # cmux 가 '그냥 프롬프트 대기'에 쓰는 고정 본문. 이것과 다르면 질문 본문이 실린 것이다.
 WAITING_GENERIC = "Claude is waiting for your input"
+# AskUserQuestion 전용 알림(title='Claude question')의 고정 본문 — 질문 **텍스트는 없다**.
+QUESTION_GENERIC = "Agent is asking a question"
+QUESTION_TITLE = "Claude question"
+# 한 번의 사건이 알림 여러 개로 쪼개져 온다(실측: 0.26초 차이로 2건). 이 안은 '같은 사건'으로 본다.
+NOTIF_MERGE_SEC = 5.0
+# 어느 쪽이 더 센 신호인가 — 같은 사건의 알림들을 합칠 때 kind 를 고르는 기준.
+_KIND_RANK = {"permission": 4, "question": 3, "waiting": 2, "completed": 1, "other": 0}
 
 # STATUS_ORDER 에서 파생하는 것들 — 클라이언트가 상태 집합을 스스로 적지 않게 하려고 내려 준다.
 #   STATUS_ORDER_LIST  화면에 놓는 순서(우선순위가 같으면 위 딕셔너리의 기재 순서를 따른다)
@@ -394,39 +401,77 @@ def notifications_by_surface():
     except Exception as e:                                    # noqa: BLE001
         print(f"[nav] 알림 피드 읽기 실패: {e}", file=sys.stderr)
         return {}, f"알림 피드 읽기 실패: {e}"
-    latest = {}
+    by_surf = {}
     for n in items:
         sid = str(n.get("surfaceId") or "").upper()
-        if not sid:
-            continue
-        cur = latest.get(sid)
-        if cur is None or (n.get("createdAt") or 0) > (cur.get("createdAt") or 0):
-            latest[sid] = n
+        if sid:
+            by_surf.setdefault(sid, []).append(n)
     out = {}
-    for sid, n in latest.items():
-        sub = n.get("subtitle") or ""
-        low = sub.lower()
-        body = (n.get("body") or "").strip()
-        # ⚠️ subtitle='Waiting' 은 **서로 다른 두 상태를 뭉뚱그린다**(실측 2026-09-02):
-        #     body == "Claude is waiting for your input"  → 그냥 프롬프트 대기(막힌 것 없음)
-        #     그 밖(질문 본문이 실림)                      → AskUserQuestion 으로 **사람을 기다리며 막힘**
-        #   후자는 431건 중 178건이었고, 178건 **전부** 본문에 [선택지] 대괄호가 있었다.
-        #   즉 이 178번의 '막힘'이 그동안 평범한 '대기'로 보였다.
-        #   막힘이라는 점에서는 도구 권한 대기와 같으므로 같은 층(자물쇠)으로 올린다 —
-        #   bypassPermissions 여도 AskUserQuestion 과 훅의 yes/no 는 그대로 사람을 기다린다.
-        kind = ("permission" if "permission" in low
-                else ("question" if (body and body != WAITING_GENERIC) else "waiting")
-                if "waiting" in low
-                else "completed" if "completed" in low
-                else "other")
+    for sid, ns in by_surf.items():
+        ns.sort(key=lambda n: n.get("createdAt") or 0, reverse=True)
+        newest = ns[0]
+        # ★ 한 사건이 알림 **여러 개**로 쪼개져 온다 — 그래서 '가장 최신 하나'만 보면 안 된다.
+        #   실측 2026-09-15(surface 1F150C4B, 숨고 탭): AskUserQuestion 하나에 2건이 떴고,
+        #     · title='Claude Code'  subtitle='Waiting'  body=질문 본문+[선택지]   @ …322.481
+        #     · title='Claude question' subtitle=''      body='Agent is asking…'  @ …322.736
+        #   0.26초 차이로 **뒤엣것이 이겼고**, 그건 subtitle 이 비어 있어 'other' 로 떨어졌다.
+        #   'other' 는 _decide_status 가 아예 안 보므로 탭 제목의 ✳(유휴 마커)로 흘러가
+        #   **사람의 답을 기다리며 막힌 탭이 '입력 대기'로** 보였다(신고 2026-09-15).
+        #   → 같은 순간의 알림들을 한 사건으로 합친다: kind 는 가장 센 것, 본문은 가장 알찬 것.
+        t0 = newest.get("createdAt") or 0
+        group = [n for n in ns if t0 - (n.get("createdAt") or 0) <= NOTIF_MERGE_SEC]
+        best_kind, best = "other", newest
+        for n in group:
+            k = _notif_kind(n)
+            if _KIND_RANK[k] > _KIND_RANK[best_kind]:
+                best_kind, best = k, n
+        # 본문은 «자리표시자가 아닌 것» 중 가장 긴 것 — 질문 텍스트는 쌍둥이 쪽에 실려 온다.
+        body = ""
+        for n in group:
+            b = (n.get("body") or "").strip()
+            if b in (WAITING_GENERIC, QUESTION_GENERIC):
+                continue
+            if len(b) > len(body):
+                body = b
+        if not body:
+            body = (newest.get("body") or "").strip()
         out[sid] = {
-            "kind": kind, "subtitle": sub,
-            "body": (n.get("body") or "").strip()[:400],
-            "at": (n.get("createdAt") or 0) + APPLE_EPOCH_OFFSET,
-            "unread": not n.get("isRead", True),
-            "title": n.get("title"),
+            "kind": best_kind,
+            "subtitle": best.get("subtitle") or newest.get("subtitle") or "",
+            "body": body[:400],
+            "at": t0 + APPLE_EPOCH_OFFSET,
+            "unread": not newest.get("isRead", True),
+            "title": best.get("title") or newest.get("title"),
         }
     return out, None
+
+
+def _notif_kind(n):
+    """알림 하나 → kind. cmux 알림은 **두 가지 형태**로 온다(실측 2026-09-15).
+
+    ① title='Claude Code' + subtitle='Waiting'|'Permission'|'Completed in …'  — 원래 알던 형태
+    ② title='Claude question' + subtitle='' + body='Agent is asking a question'
+       ②는 subtitle 이 **비어 있다.** subtitle 문자열만 보던 분류기는 이걸 'other' 로 떨궜고,
+       그게 AskUserQuestion 을 못 잡던 원인이다. 형태가 아니라 **뜻**으로 가른다.
+
+    ⚠️ subtitle='Waiting' 은 서로 다른 두 상태를 뭉뚱그린다(실측 2026-09-02):
+       body == WAITING_GENERIC → 그냥 프롬프트 대기(막힌 것 없음) / 그 밖 → 질문 본문이 실림 = 막힘.
+       막힘이라는 점에서 권한 대기와 같아 같은 층(0층)으로 올린다 — bypassPermissions 여도
+       AskUserQuestion 과 훅의 yes/no 는 그대로 사람을 기다린다.
+    """
+    title = (n.get("title") or "").strip()
+    sub = (n.get("subtitle") or "")
+    low = sub.lower()
+    body = (n.get("body") or "").strip()
+    if title == QUESTION_TITLE or body == QUESTION_GENERIC:
+        return "question"          # ② — 질문 텍스트는 없지만 '질문이다'라는 사실은 확실하다
+    if "permission" in low:
+        return "permission"
+    if "waiting" in low:
+        return "question" if (body and body != WAITING_GENERIC) else "waiting"
+    if "completed" in low:
+        return "completed"
+    return "other"
 
 
 # ---------- ④ transcript(jsonl) → 마지막 활동/마지막 사용자 프롬프트 ----------
