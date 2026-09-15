@@ -645,6 +645,44 @@ class RestoreLayoutBody(BaseModel):
     selections: list[LayoutSel]
     autoRunClaude: bool = False
     target: str = "new"           # "new"=새 창 | "current"=현재 활성 창
+    skipRunningWs: bool = True    # 이미 실행중뿐인 워크스페이스는 만들지 않음(껍데기 방지)
+
+
+def _layout_windows_for(body: RestoreLayoutBody):
+    if body.snapshotId:
+        snap = db.get_snapshot(body.snapshotId)
+    else:
+        latest = db.get_latest()
+        snap = db.get_snapshot(latest["id"]) if latest else None
+    if not snap:
+        raise HTTPException(status_code=404, detail="스냅샷 없음")
+    return restore.load_layout_windows(snap)
+
+
+@app.post("/api/cmux/restore-preflight")
+def do_restore_preflight(body: RestoreLayoutBody):
+    """복구하면 무슨 일이 벌어지는지 **미리** 답한다(cmux 는 건드리지 않는다).
+
+    ★ 왜 필요한가: 예전 다이얼로그는 "최대 12개 자동 실행"만 말했다. 실제로 claude 를 막는
+      게이트는 둘인데(상한·이미 실행중) 둘째는 한마디도 없었고, 그래서 24개를 복구하고 3개만
+      뜬 날 화면은 아무것도 설명하지 못했다. 이제 «몇 개가 왜 안 뜨는지»를 누르기 전에 말한다.
+    ⚠️ 실제 복원과 **같은 함수·같은 순서**(dry_run)로 계산한다. 별도 시뮬레이터를 두면 상한이
+      순회 순서에 의존하는 탓에 예고와 실제가 소리 없이 어긋난다.
+    """
+    if demo.ENABLED:
+        return demo.ok()
+    lw = _layout_windows_for(body)
+    try:
+        out = restore.restore_layout_windows(
+            lw, [{"wsId": s.wsId, "panelIds": s.panelIds} for s in body.selections],
+            target=body.target, autorun=body.autoRunClaude,
+            skip_running_ws=body.skipRunningWs, dry_run=True)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "workspaces": out["workspaces"],
+            "autorunInjected": out["autorunInjected"], "skipped": out["skipped"],
+            "skippedDetail": out["skippedDetail"], "alreadyRunning": out["alreadyRunning"],
+            "orphans": out["orphans"], "maxAutorun": restore.MAX_CLAUDE_AUTORUN}
 
 
 @app.post("/api/cmux/restore-layout")
@@ -657,20 +695,13 @@ def do_restore_layout(body: RestoreLayoutBody):
     """
     if demo.ENABLED:
         return demo.ok()
-    if body.snapshotId:
-        snap = db.get_snapshot(body.snapshotId)
-    else:
-        latest = db.get_latest()
-        snap = db.get_snapshot(latest["id"]) if latest else None
-    if not snap:
-        raise HTTPException(status_code=404, detail="스냅샷 없음")
-
-    lw = restore.load_layout_windows(snap)
+    lw = _layout_windows_for(body)
     try:
         # ★ 오케스트레이션은 restore.restore_layout_windows 단일 구현(스킬 cmux-snapshot.py 와 공유).
         out = restore.restore_layout_windows(
             lw, [{"wsId": s.wsId, "panelIds": s.panelIds} for s in body.selections],
-            target=body.target, autorun=body.autoRunClaude)
+            target=body.target, autorun=body.autoRunClaude,
+            skip_running_ws=body.skipRunningWs)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -678,6 +709,9 @@ def do_restore_layout(body: RestoreLayoutBody):
         db.mark_restored(out["doneKeys"])
     return {"ok": True, "workspaces": out["workspaces"], "restored": out["restored"],
             "groups": out["groups"], "autorunInjected": out["autorunInjected"],
+            # ★ 이유별 회계를 함께 돌려준다 — "왜 3개만 떴나"에 화면이 답할 수 있도록.
+            "skipped": out["skipped"], "skippedDetail": out["skippedDetail"],
+            "alreadyRunning": out["alreadyRunning"], "orphans": out["orphans"],
             "markedDone": len(set(out["doneKeys"])), "results": out["results"]}
 
 

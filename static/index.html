@@ -179,6 +179,28 @@
   .lgroup .gicon{opacity:.85}
   .lgroup-body{padding-left:8px}
   .lgroup-body .lw{margin-bottom:8px}
+
+/* ── 복구 사전 점검 다이얼로그 ─────────────────────────────────────────
+   confirm() 은 체크박스를 담을 수 없어서 최소한의 모달만 따로 둔다. */
+.rc-back{position:fixed;inset:0;background:rgb(0 0 0/.55);display:flex;
+  align-items:center;justify-content:center;z-index:9000;padding:16px}
+.rc-box{background:var(--card,var(--bg));color:var(--text);border:1px solid var(--border);
+  border-radius:12px;max-width:520px;width:100%;max-height:82vh;overflow:auto;
+  padding:18px 20px;box-shadow:0 12px 40px rgb(0 0 0/.4)}
+.rc-box h3{margin:0 0 10px;font-size:15px}
+.rc-line{display:flex;justify-content:space-between;gap:12px;padding:5px 0;
+  border-bottom:1px dashed var(--border);font-size:13px}
+.rc-line:last-of-type{border-bottom:0}
+.rc-line b{font-variant-numeric:tabular-nums}
+.rc-why{color:var(--muted,var(--text-code));font-size:12px;margin:2px 0 0}
+.rc-note{background:var(--notice-bg);border-radius:8px;padding:9px 11px;margin:12px 0;
+  font-size:12.5px;line-height:1.55}
+.rc-opt{display:flex;gap:9px;align-items:flex-start;margin:12px 0;font-size:13px;cursor:pointer}
+.rc-opt input{margin-top:2px;flex:none}
+.rc-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.rc-btns button{padding:7px 15px;border-radius:8px;border:1px solid var(--border);
+  background:transparent;color:var(--text);cursor:pointer;font-size:13px}
+.rc-btns button.go{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
 </style>
 </head>
 <body>
@@ -1045,6 +1067,55 @@ function toggleWin(wi, on){
   });
 }
 function lselAll(on){ document.querySelectorAll('.ws-check').forEach(cb=>{ cb.checked=on; toggleWs(cb); }); }
+// ── 복구 사전 점검 다이얼로그 ───────────────────────────────────────────
+// 반환: {skipRunningWs} 진행 · null 취소.
+// ★ 여기가 이 화면의 정직함이 걸린 자리다. 예전 문구는 "최대 12개 자동 실행"만 말했는데,
+//   실제로 claude 를 막는 게이트는 둘이었다(① 상한 ② 이미 실행중). 신고된 사고에서 범인은
+//   ②였고 ①은 한 번도 걸리지 않았다 — 화면은 걸리지도 않은 게이트만 설명하고 있었던 셈이다.
+function restoreConfirm(selections, nClaude, where, pre){
+  return new Promise(resolve=>{
+    const back=document.createElement('div'); back.className='rc-back';
+    const sk=(pre&&pre.skipped)||{}, ar=pre?pre.autorunInjected:null;
+    const already=(pre&&pre.alreadyRunning)||[], orph=(pre&&pre.orphans)||[];
+    const rows=[];
+    rows.push(`<div class="rc-line"><span>워크스페이스</span><b>${selections.length}개 · 탭 ${lselCount()}개</b></div>`);
+    if(pre){
+      rows.push(`<div class="rc-line"><span>claude 자동 실행</span><b>${ar} / ${nClaude}</b></div>`);
+      if(already.length){
+        const w=[...new Set(already.map(a=>a.window).filter(Boolean))].join(', ');
+        rows.push(`<div class="rc-line"><span>이미 실행중이라 생략</span><b>${already.length}개</b></div>`
+          +`<p class="rc-why">${w?w+' 에 살아 있습니다':'다른 창에 살아 있습니다'} — 복원해도 빈 터미널만 생깁니다.</p>`);
+      }
+      if(sk.running) rows.push(`<div class="rc-line"><span>실행중이라 미실행(탭은 생성)</span><b>${sk.running}개</b></div>`);
+      if(sk.budget) rows.push(`<div class="rc-line"><span>상한 ${pre.maxAutorun} 초과</span><b>${sk.budget}개</b></div>`
+        +`<p class="rc-why">OOM 가드입니다. 초과분은 복구표에서 손으로 켜세요.</p>`);
+      if(orph.length) rows.push(`<div class="rc-line"><span>⚠️ 고아 프로세스</span><b>${orph.length}개</b></div>`
+        +`<p class="rc-why">탭 없이 프로세스만 살아 있어 닿을 수 없습니다. 이중기동을 피하려 건너뜁니다 — 되살리려면 그 프로세스를 먼저 정리하세요.</p>`);
+    }else{
+      rows.push(`<div class="rc-line"><span>claude</span><b>${nClaude}개</b></div>`
+        +`<p class="rc-why">사전 점검에 실패해 예상치를 못 냈습니다. 그대로 진행할 수 있습니다.</p>`);
+    }
+    const note = selections.length>12 ? `<div class="rc-note">⚠️ 한 번에 4~12개를 권합니다.</div>` : '';
+    back.innerHTML=`<div class="rc-box" role="dialog" aria-modal="true">
+      <h3>${selections.length}개 워크스페이스를 ${where}에 복원</h3>
+      ${rows.join('')}
+      ${note}
+      <label class="rc-opt"><input type="checkbox" id="rcSkip" checked>
+        <span><b>이미 실행중인 것은 만들지 않기</b><br>
+        <span class="rc-why">끄면 예전처럼 빈 터미널로도 만듭니다(레이아웃은 원본에 더 충실).</span></span></label>
+      <div class="rc-btns"><button id="rcNo">취소</button><button class="go" id="rcGo">복원</button></div>
+    </div>`;
+    const done=v=>{ back.remove(); document.removeEventListener('keydown',esc); resolve(v); };
+    const esc=e=>{ if(e.key==='Escape') done(null); };
+    back.addEventListener('click',e=>{ if(e.target===back) done(null); });
+    document.addEventListener('keydown',esc);
+    document.body.appendChild(back);
+    back.querySelector('#rcNo').onclick=()=>done(null);
+    back.querySelector('#rcGo').onclick=()=>done({skipRunningWs:back.querySelector('#rcSkip').checked});
+    back.querySelector('#rcGo').focus();
+  });
+}
+
 async function restoreLayoutSelected(){
   if(needControl()) return;
   const selections=[];
@@ -1054,16 +1125,30 @@ async function restoreLayoutSelected(){
   selections.forEach(s=>{ const ws=LWS[s.wsId]; if(ws) s.panelIds.forEach(pid=>{ if(ws.panels[pid]&&ws.panels[pid].sessionId) nClaude++; }); });
   const target=(document.getElementById('restoreTarget')||{}).value||'new';
   const where= target==='current' ? '현재 창' : '새 창';
-  let msg=`${selections.length}개 워크스페이스 · ${lselCount()}개 탭을 스플릿 배치 그대로 ${where}에 복원합니다.\n`;
-  msg+= autoRunClaude ? `claude ${nClaude}개 중 최대 12개 자동 실행(OOM 가드), 초과분은 복구표에서 수동.` : `claude ${nClaude}개는 resume 바인딩만(수동 실행).`;
-  if(selections.length>12) msg+=`\n⚠️ 한 번에 4~12개 권장.`;
-  if(!confirm(msg+'\n진행할까요?')) return;
+  // ★ 누르기 전에 «무슨 일이 벌어지는지» 먼저 묻는다. 예전엔 상한 12만 안내하고 실제로
+  //   claude 를 막는 다른 게이트(이미 실행중)는 침묵해서, 24개를 복구하고 3개만 뜬 날
+  //   화면이 아무것도 설명하지 못했다(2026-09-09).
+  let pre=null;
   try{
-    const r=await post('/api/cmux/restore-layout',{snapshotId:Number(recSnapId), selections, autoRunClaude, target});
+    pre = await post('/api/cmux/restore-preflight',
+      {snapshotId:Number(recSnapId), selections, autoRunClaude, target, skipRunningWs:true});
+  }catch(e){ /* 사전 점검이 실패해도 복구 자체를 막지는 않는다 */ }
+  const ok = await restoreConfirm(selections, nClaude, where, pre);
+  if(!ok) return;
+  try{
+    const r=await post('/api/cmux/restore-layout',
+      {snapshotId:Number(recSnapId), selections, autoRunClaude, target, skipRunningWs:ok.skipRunningWs});
     const fb=r.results.filter(x=>x.mode&&x.mode.indexOf('flat')>=0).length;
     const fail=r.results.filter(x=>!x.ok).length;
-    const ar=(r.autorunInjected||0);
-    toast(`복원 ${r.restored}/${r.workspaces} WS`+(ar?` · claude ${ar} 실행`:'')+(fb?` · flat폴백 ${fb}`:'')+(fail?` · 실패 ${fail}`:''));
+    const ar=(r.autorunInjected||0), sk=r.skipped||{};
+    // 이유별로 말한다 — «조용한 0» 을 만들지 않는다.
+    const why=[];
+    if((r.alreadyRunning||[]).length) why.push(`이미 실행중 ${r.alreadyRunning.length} 생략`);
+    if(sk.running) why.push(`실행중이라 미실행 ${sk.running}`);
+    if(sk.budget) why.push(`상한 초과 ${sk.budget}`);
+    if((r.orphans||[]).length) why.push(`고아 ${r.orphans.length}`);
+    toast(`복원 ${r.restored}/${r.workspaces} WS`+(ar?` · claude ${ar} 실행`:'')
+      +(why.length?` · ${why.join(' · ')}`:'')+(fb?` · flat폴백 ${fb}`:'')+(fail?` · 실패 ${fail}`:''));
     renderRecovery();
   }catch(e){ toast('실패: '+e.message); }
 }
