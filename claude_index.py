@@ -222,7 +222,7 @@ def session_meta(session_id):
 # (2026-08-04 사고: 창 하나가 하루 종일 네이티브에 기록되지 않은 채 재부팅으로 소실.
 #  스냅샷의 tree 쪽에는 제목이 남아 있어 이 역매칭으로 세션을 전부 복원했다.)
 
-_title_index = {}          # 정규화제목 → (sid, mtime)
+_title_index = {}          # 정규화제목 → (sid, mtime, n) — n = 그 제목을 쓰는 세션 수
 _title_miss = set()        # 이번 인덱스 세대에서 매칭 실패한 제목(재스캔 폭주 방지)
 _title_index_ts = 0.0
 _TITLE_TTL = 60            # 초
@@ -277,39 +277,68 @@ def _refresh_title_index(force=False):
         if not key:
             continue
         prev = idx.get(key)
-        # 같은 제목이 여럿이면 가장 최근 활동한 세션을 채택
+        sid = os.path.basename(p)[:-6].lower()
+        # 같은 제목이 여럿이면 가장 최근 활동한 세션을 채택하되, **몇 개였는지를 버리지 않는다.**
+        # ★ 예전에는 승자만 남기고 충돌 사실을 지웠다. 그래서 호출부는 "이 제목 = 이 세션"이라고
+        #   믿을 수밖에 없었고, 같은 제목의 탭 둘이 **같은 세션으로 합쳐져** 한쪽에서 끝난 답변이
+        #   다른 쪽에서도 끝난 것처럼 보였다(신고 2026-09-20).
+        #   실측: 45일 내 제목 476개 중 겹치는 것은 16개(3.4%) — 충돌을 아는 값이 싸다.
+        n = (prev[2] if prev else 0) + 1
         if prev is None or mtime > prev[1]:
-            idx[key] = (os.path.basename(p)[:-6].lower(), mtime)
+            idx[key] = (sid, mtime, n)
+        else:
+            idx[key] = (prev[0], prev[1], n)
     _title_index = idx
     _title_index_ts = now
     _title_miss.clear()      # 새 세대 — 실패 기록 리셋
 
 
-def lookup_title(title):
+def title_count(title):
+    """그 제목을 쓰는 세션이 몇 개인가. 0 = 모르는 제목. 2 이상 = **제목으로는 못 가린다.**"""
+    key = normalize_title(title)
+    if not key:
+        return 0
+    _refresh_title_index()
+    hit = _title_index.get(key)
+    return hit[2] if hit else 0
+
+
+def lookup_title(title, unique_only=False):
     """aiTitle → sessionId. **미스여도 재스캔하지 않는다.**
 
     find_by_title() 은 못 찾으면 전체를 다시 훑는다(새로 시작한 세션을 잡기 위해서다).
     그 대가가 커서, '있으면 좋고 없으면 그만'인 대조용으로는 못 쓴다 — 터미널 제목
     (joon@host:~ 같은 것)이 섞인 탭 수십 개를 한 번에 조회하면 재스캔이 연달아 터진다
     (실측 2026-09-02: /api/nav fresh 0.58s → 1.1s). 대조는 이 함수를 쓴다.
+
+    unique_only: 같은 제목의 세션이 둘 이상이면 None. 제목이 **누구인지 가리지 못할 때**
+        승자(가장 최근 활동)를 내주면 그건 답이 아니라 동전던지기다 — 부르는 쪽이
+        그걸 근거로 확정된 배정을 덮으면 멀쩡한 판정이 망가진다.
     """
     key = normalize_title(title)
     if not key:
         return None
     _refresh_title_index()
     hit = _title_index.get(key)
-    return hit[0] if hit else None
+    if not hit:
+        return None
+    if unique_only and hit[2] > 1:
+        return None
+    return hit[0]
 
 
-def find_by_title(title):
-    """aiTitle(터미널 서피스 제목) → sessionId. 못 찾으면 None."""
+def find_by_title(title, unique_only=False):
+    """aiTitle(터미널 서피스 제목) → sessionId. 못 찾으면 None.
+
+    unique_only: 같은 제목의 세션이 둘 이상이면 None(lookup_title 주석 참조).
+    """
     key = normalize_title(title)
     if not key:
         return None
     _refresh_title_index()
     hit = _title_index.get(key)
     if hit:
-        return hit[0]
+        return None if (unique_only and hit[2] > 1) else hit[0]
     # 'INBOX'·'joon@host:~' 처럼 claude 가 아닌 터미널 제목은 영영 매칭되지 않는다.
     # 미스마다 전체 재스캔하면 워크스페이스 수만큼 재스캔이 터진다(실측 0.78s/스냅샷) →
     # 세대별 네거티브 캐시로 재스캔을 미스당 1회로 제한.
@@ -318,7 +347,7 @@ def find_by_title(title):
     _refresh_title_index(force=True)   # 방금 생긴 세션 대비 1회 강제 갱신
     hit = _title_index.get(key)
     if hit:
-        return hit[0]
+        return None if (unique_only and hit[2] > 1) else hit[0]
     _title_miss.add(key)
     return None
 

@@ -865,20 +865,44 @@ def collect(use_cache=True):
             # ⚠️ find_by_title() 이 아니라 lookup_title() 이다 — 전자는 **미스마다 전체를
             #    다시 훑는다.** 여기서는 탭 전부(터미널 제목 포함)를 대조하므로 그걸 쓰면
             #    재스캔이 연달아 터진다(실측: /api/nav fresh 0.58s → 1.1s).
-            return claude_index.lookup_title(t)
+            # ★ unique_only — 같은 제목의 세션이 둘 이상이면 None 을 받는다.
+            #   제목이 누구인지 못 가리는데 승자(최근 활동)를 받아 쓰면, 그건 교정이 아니라
+            #   **동전던지기로 멀쩡한 배정을 덮는 것**이다(신고 2026-09-20 의 정체).
+            return claude_index.lookup_title(t, unique_only=True)
         except Exception as e:                                # noqa: BLE001
             print(f"[nav] 제목→세션 조회 실패: {e}", file=sys.stderr)
             return None
 
     bg_map = background_shells()      # pid → 살아 있는 셸 수(턴이 끝난 탭에서만 뜻이 있다)
+    # 명령줄에 세션 id 가 **직접 적혀 있는** 것들. 이건 추측이 아니라 그 프로세스 자신이다.
+    cmdline_sids = {p["sessionId"] for p in procs if p["sessionId"]}
+    ambiguous = 0
     for pr in procs:
         g = _title_sid(pr)
+        if not g and pr["sessionId"]:
+            # 제목이 여럿을 가리켜 교정을 접은 경우를 센다 — 조용한 0 을 만들지 않는다.
+            try:
+                t0 = (idx.get(pr["surfaceId"]) or {}).get("tabTitle")
+                if t0 and claude_index.title_count(t0) > 1:
+                    ambiguous += 1
+            except Exception:                                 # noqa: BLE001
+                pass
         if g and pr["sessionId"] and g != pr["sessionId"]:
+            # ⚠️ **다른 프로세스가 자기 명령줄에 들고 있는 세션은 뺏지 않는다.**
+            #    제목 추측이 남의 확정 배정을 가져가면 두 탭이 한 세션을 나눠 갖고,
+            #    한쪽에서 끝난 답변이 다른 쪽에서도 끝난 것으로 보인다.
+            if g in cmdline_sids:
+                print(f"[nav] 배정 교정 보류(패널 {pr['surfaceId'][:8]}): "
+                      f"{g[:8]} 는 다른 탭이 명령줄로 들고 있습니다", file=sys.stderr)
+                continue
             warnings_detail = f"{pr['sessionId'][:8]} → {g[:8]}"
             print(f"[nav] 배정 교정(패널 {pr['surfaceId'][:8]}): {warnings_detail}"
                   f" — CMUX_PANEL_ID 가 낡았습니다", file=sys.stderr)
             pr["sessionId"] = g
             pr["sessionIdCorrected"] = True
+    if ambiguous:
+        print(f"[nav] 제목이 같은 세션이 여럿이라 배정 교정을 접은 탭 {ambiguous}개 "
+              f"— 명령줄 배정을 그대로 씁니다", file=sys.stderr)
 
     # 이미 명령줄에서 확인된 세션들. 제목 추측이 이 중 하나를 다시 집으면 **버린다** —
     # 확정된 세션을 두 탭이 나눠 갖는 순간, 그 허상 위에서 상태·활동을 읽게 된다
@@ -897,7 +921,10 @@ def collect(use_cache=True):
             #   cmux 가 대화를 보고 붙인 탭 제목(aiTitle)으로 세션을 되찾는다.
             guess = None
             try:
-                guess = claude_index.find_by_title((loc or {}).get("tabTitle"))
+                # 여기도 unique_only — 근거가 제목뿐인데 그 제목이 여럿을 가리키면
+                # 찍어서 맞히는 것보다 «모른다»가 낫다. 틀린 배정은 남의 활동·상태를 보여준다.
+                guess = claude_index.find_by_title((loc or {}).get("tabTitle"),
+                                                   unique_only=True)
             except Exception as e:                            # noqa: BLE001
                 print(f"[nav] 제목→세션 조회 실패: {e}", file=sys.stderr)
             if guess and guess not in claimed:
@@ -905,6 +932,9 @@ def collect(use_cache=True):
                 claimed.add(guess)
             elif guess:
                 sid_src = "제목 추정(다른 탭이 이미 씀 → 버림)"
+            elif (loc or {}).get("tabTitle") and \
+                    claude_index.title_count((loc or {}).get("tabTitle")) > 1:
+                sid_src = "없음(제목이 같은 세션 여럿 — 못 가림)"
             else:
                 sid_src = "없음"
         ti = transcript_info(sid)
