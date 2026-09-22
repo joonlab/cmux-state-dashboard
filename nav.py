@@ -537,7 +537,8 @@ def clean_prompt(txt):
     return ("🖼 " if had_img else "") + txt[:180]
 
 
-def transcript_path(sid):
+def _raw_transcript_path(sid):
+    """그 sid **자신의** .jsonl. 이어진 세션까지 따라가지는 않는다."""
     if not sid:            # 새로 시작한 세션은 UUID 를 모를 수 있다 — 조용히 없음 처리
         return None
     hit = _TRANSCRIPT_CACHE.get(sid)
@@ -548,6 +549,78 @@ def transcript_path(sid):
         return None
     _TRANSCRIPT_CACHE[sid] = found[0]
     return found[0]
+
+
+_CONT_CACHE = {}          # path → (mtime, 후속 sid | None)
+_CONT_TAIL = 16 * 1024    # 'continued-in' 은 파일 **맨 끝**에 붙는다 — 꼬리만 본다
+
+
+def continued_in(path):
+    """이 transcript 가 «다른 세션 파일로 이어졌나». 이어졌으면 후속 sid, 아니면 None.
+
+    ★ Claude Code 는 세션이 이어질 때(컨텍스트 한계·compact 등) 옛 파일 끝에
+      `{"type":"continued-in","continuedInSessionId":"<새 sid>"}` 한 줄을 남기고
+      그 뒤로는 **새 파일에만 쓴다.** 그런데 프로세스의 `--session-id` 는 처음 것 그대로다.
+      그래서 이걸 안 따라가면 **죽은 파일을 활동 근거로 삼게 된다** — 실측 2026-09-23:
+      tab:99 는 01:07 에 이어졌는데(→ c7a4334a) nav 는 옛 파일만 보고 있었고, 그 뒤로
+      대화 근거가 영영 갱신되지 않아 01:30 의 질문 알림이 **6시간 동안 「질문 대기」로 굳었다**
+      (그 사이 세션은 01:45 까지 멀쩡히 일하고 있었다).
+      실행 중 18탭 중 2탭이 이 상태였다.
+
+    mtime 으로 캐시한다 — 이어진(죽은) 파일은 mtime 이 다시 안 바뀌므로 영구 캐시 적중이고,
+    살아 있는 파일은 바뀔 때만 꼬리 16KB 를 다시 본다.
+    """
+    try:
+        mt = os.path.getmtime(path)
+    except OSError:
+        return None
+    hit = _CONT_CACHE.get(path)
+    if hit and hit[0] == mt:
+        return hit[1]
+    succ = None
+    try:
+        with open(path, "rb") as f:
+            size = os.fstat(f.fileno()).st_size
+            f.seek(max(0, size - _CONT_TAIL))
+            tail = f.read()
+        if b'"continued-in"' in tail:      # 흔치 않은 경우에만 파싱 비용을 낸다
+            for ln in reversed(tail.splitlines()):
+                if b'"continued-in"' not in ln:
+                    continue
+                try:
+                    o = json.loads(ln)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                if o.get("type") == "continued-in":
+                    succ = o.get("continuedInSessionId")
+                    break
+    except OSError:
+        succ = None
+    _CONT_CACHE[path] = (mt, succ)
+    return succ
+
+
+def transcript_path(sid, _seen=None):
+    """그 세션의 **살아 있는** transcript. 이어진 세션이면 사슬 끝까지 따라간다."""
+    path = _raw_transcript_path(sid)
+    if not path:
+        return None
+    _seen = _seen or {sid}
+    succ = continued_in(path)
+    if succ and succ not in _seen and len(_seen) < 16:   # 고리·폭주 방지
+        _seen.add(succ)
+        nxt = transcript_path(succ, _seen)
+        if nxt:
+            return nxt
+    return path
+
+
+def live_session_id(sid):
+    """이어진 사슬의 **끝** 세션 id. 안 이어졌으면 sid 그대로."""
+    path = transcript_path(sid)
+    if not path:
+        return sid
+    return os.path.basename(path)[:-6] or sid
 
 
 # 뒤에서부터 읽을 때의 청크 크기. 한 번에 메모리에 두는 양이 이만큼으로 묶인다.
@@ -957,11 +1030,21 @@ def collect(use_cache=True):
         renamed = bool(_RENAMED.get(str(p["surfaceId"]).upper()))
         status, source = decide_status(tab_title, notif, last_activity, now, act_src, turn,
                                        bg_map.get(p["pid"], 0))
+        # 이어진 세션이면 «지금 살아 있는» 쪽 id 도 함께 싣는다. 상태·활동은 이미 그쪽
+        # transcript 로 판정했으므로(transcript_path 가 사슬을 따라간다), 화면이 옛 id 만
+        # 보여 주면 resume 도 옛 것을 가리켜 사람을 헷갈리게 한다.
+        live_sid = None
+        if ti.get("transcript"):
+            cand = os.path.basename(ti["transcript"])[:-6]
+            if cand and sid and cand.lower() != str(sid).lower():
+                live_sid = cand
         tabs.append({
             "pid": p["pid"],
             "bgShells": bg_map.get(p["pid"], 0),
             "sessionId": sid,
-            "sessionIdSource": sid_src,
+            "liveSessionId": live_sid,      # 이어진 경우에만 값이 있다(아니면 None)
+            "sessionIdSource": (f"{sid_src} · 이어진 세션 {live_sid[:8]} 로 추적"
+                                if live_sid else sid_src),
             "lastHumanAt": ti["lastHumanAt"],
             "wokenBySystem": bool(ti["wokenBySystem"]),
             "wakeKind": ti["wakeKind"],
