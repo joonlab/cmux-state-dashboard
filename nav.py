@@ -446,31 +446,56 @@ def notifications_by_surface():
     return out, None
 
 
-def _notif_kind(n):
-    """알림 하나 → kind. cmux 알림은 **두 가지 형태**로 온다(실측 2026-09-15).
+# 권한 요청임이 **본문에만** 적히는 형태들(제목·부제가 비어 있을 때의 유일한 단서).
+_PERM_BODY = ("needs your permission", "needs approval")
+_UNKNOWN_NOTIF = set()      # 한 번씩만 알린다(로그가 벽이 되지 않게)
 
-    ① title='Claude Code' + subtitle='Waiting'|'Permission'|'Completed in …'  — 원래 알던 형태
-    ② title='Claude question' + subtitle='' + body='Agent is asking a question'
-       ②는 subtitle 이 **비어 있다.** subtitle 문자열만 보던 분류기는 이걸 'other' 로 떨궜고,
-       그게 AskUserQuestion 을 못 잡던 원인이다. 형태가 아니라 **뜻**으로 가른다.
+
+def _notif_kind(n):
+    """알림 하나 → kind. cmux 알림은 **두 계열**로 온다(실측 2026-09-24 · 1,001건).
+
+    ① title='Claude Code' + subtitle='Waiting'|'Permission'|'Completed in …'
+    ② title='Claude question'|'Claude permission' + subtitle='' — 뜻이 **title·body** 에 있다
+       (`Claude Code` + 빈 subtitle + body='Claude needs your permission' 형태도 있다)
+
+    ②는 subtitle 이 비어 있어서, subtitle 문자열만 보던 분류기가 통째로 'other' 로 떨궜고
+    _decide_status 는 other 를 아예 보지 않는다 → **막힌 탭이 '입력 대기'로** 보였다.
+
+    ★ 2026-09-15 에 ②의 question 만 고치고 permission 을 빠뜨려 **같은 사고가 재발했다**
+      (신고 2026-09-24: AskUserQuestion 대기 중인데 자물쇠가 안 떴다). 그래서 이제
+      낱개 문자열을 하나씩 때우지 않고 **뜻이 실릴 수 있는 자리를 모두 훑고**,
+      Claude 계열인데 못 가른 것은 **조용히 넘기지 않고 로그에 남긴다** — 다음 형태가
+      또 생기면 사람이 모르는 채로 지나가지 않도록.
 
     ⚠️ subtitle='Waiting' 은 서로 다른 두 상태를 뭉뚱그린다(실측 2026-09-02):
        body == WAITING_GENERIC → 그냥 프롬프트 대기(막힌 것 없음) / 그 밖 → 질문 본문이 실림 = 막힘.
        막힘이라는 점에서 권한 대기와 같아 같은 층(0층)으로 올린다 — bypassPermissions 여도
        AskUserQuestion 과 훅의 yes/no 는 그대로 사람을 기다린다.
+    ⚠️ 키워드는 title+subtitle 에서만 찾는다. body 까지 넣으면 완료 알림 본문에 섞인
+       '대기'·'권한' 같은 말에 걸려 멀쩡한 탭이 막힘으로 둔갑한다.
     """
     title = (n.get("title") or "").strip()
     sub = (n.get("subtitle") or "")
-    low = sub.lower()
     body = (n.get("body") or "").strip()
-    if title == QUESTION_TITLE or body == QUESTION_GENERIC:
-        return "question"          # ② — 질문 텍스트는 없지만 '질문이다'라는 사실은 확실하다
-    if "permission" in low:
+    hay = f"{title} {sub}".lower()
+    blow = body.lower()
+
+    if "permission" in hay or any(k in blow for k in _PERM_BODY):
         return "permission"
-    if "waiting" in low:
+    if "question" in hay or body == QUESTION_GENERIC:
+        return "question"          # 질문 텍스트는 없어도 '질문이다'라는 사실은 확실하다
+    if "waiting" in hay:
         return "question" if (body and body != WAITING_GENERIC) else "waiting"
-    if "completed" in low:
+    if body == WAITING_GENERIC:
+        return "waiting"
+    if "completed" in hay or "done" in hay:
         return "completed"
+    if title.lower().startswith("claude"):
+        key = (title, sub[:40])
+        if key not in _UNKNOWN_NOTIF:
+            _UNKNOWN_NOTIF.add(key)
+            print(f"[nav] 못 가른 Claude 알림 — title={title!r} subtitle={sub[:40]!r} "
+                  f"body={body[:60]!r} (상태 판정에서 제외됩니다)", file=sys.stderr)
     return "other"
 
 
