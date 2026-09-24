@@ -136,6 +136,33 @@ def background_shells():
 PROC_TTL = 8.0             # 초 — ps -E 출력이 2.8MB/125ms 라 상시 폴링에선 따로 캐시한다
 
 
+_ENV_TOK = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def _split_argv(cmd):
+    r"""`ps -E` 가 명령줄 **뒤에 붙인 환경변수**를 떼어 내고 argv 부분만 돌려준다.
+
+    ★ 왜 필요한가(실측 2026-09-24): `-E` 는 argv 와 env 를 **같은 문자열**로 이어 붙인다.
+      그래서 명령줄을 정규식으로 훑으면 env 값이 같이 읽힌다. 실제로 두 군데가 무너져 있었다.
+        · `\S*/claude(\s|$)` 가 `CMUX_CLAUDE_WRAPPER_SHIM=…/claude`·`_=…/bin/claude` 에 걸려
+          python·bun·java·pyright, 심지어 `ps` 자신까지 claude 로 잡혔다 — **236건 중 183건이 가짜.**
+        · 부모 판별용 `(^|/)(-?zsh|…)` 가 부모 env 의 `SHELL=/bin/zsh` 에 걸려
+          거의 모든 프로세스가 "로그인 셸의 자식"이 됐다(236 중 219).
+      그 결과 한 패널에서 **진짜 claude 가 자기 자식(pyright)에게 밀렸고**(세션 인자가 없는
+      쪽끼리는 pid 가 작은 것이 이긴다), 화면엔 랭귀지서버의 cwd 와 "세션 판별 근거 약함 —
+      제목 추정"이 떴다.
+
+    환경변수는 **연속된 꼬리**이므로 뒤에서부터 `NAME=` 꼴이 끊기는 지점까지가 argv 다.
+    ⚠️ 값에 공백이 든 env 가 있으면 거기서 일찍 멈춘다(= env 일부가 argv 에 남는다).
+       그래서 이 분리만 믿지 않고, 호출부는 **argv[0] 의 basename 이 claude 인지**로 한 번 더 조인다.
+    """
+    toks = cmd.split(" ")
+    i = len(toks)
+    while i > 1 and _ENV_TOK.match(toks[i - 1]):
+        i -= 1
+    return " ".join(toks[:i])
+
+
 def claude_processes(use_cache=True):
     """탭에서 돌고 있는 claude 목록. [{pid, sessionId, surfaceId}], 에러 문자열.
 
@@ -161,29 +188,36 @@ def claude_processes(use_cache=True):
         return [], f"ps 실행 실패: {e}"
     out = raw.decode("utf-8", "replace")
 
-    cmd_by_pid = {}          # pid → command (부모 판별용)
+    argv_by_pid = {}         # pid → argv(환경변수 제거) — 부모 판별도 이걸로 한다
     rows = []
     for line in out.splitlines():
         m = re.match(r"\s*(\d+)\s+(\d+)\s+(.*)", line)
         if not m:
             continue
         pid, ppid, cmd = int(m.group(1)), int(m.group(2)), m.group(3)
-        cmd_by_pid[pid] = cmd
-        if "/claude" not in cmd or "cmux hooks" in cmd:
+        argv = _split_argv(cmd)
+        argv_by_pid[pid] = argv
+        if "cmux hooks" in argv:
             continue
-        if not re.search(r"(^|\s)\S*/claude(\s|$)", cmd):
+        # ★ 실행파일 이름으로 조인다. 예전엔 명령줄 어딘가에 '/claude' 가 보이기만 하면
+        #   통과시켰는데, ps -E 가 붙인 env 에 그 문자열이 늘 들어 있어 아무 프로세스나
+        #   claude 로 둔갑했다(_split_argv 주석 참조).
+        argv0 = argv.split(" ", 1)[0] if argv else ""
+        if os.path.basename(argv0) != "claude":
             continue
-        panel = re.search(r"CMUX_PANEL_ID=([0-9A-Fa-f-]{36})", cmd)
+        panel = re.search(r"CMUX_PANEL_ID=([0-9A-Fa-f-]{36})", cmd)   # 이건 env 라 cmd 에서 찾는다
         if not panel:                    # cmux 탭에서 돌고 있는 것만 대상
             continue
-        sid = re.search(r"--(?:session-id|resume)\s+([0-9a-fA-F-]{36})", cmd)
+        sid = re.search(r"--(?:session-id|resume)\s+([0-9a-fA-F-]{36})", argv)
         rows.append({"pid": pid, "ppid": ppid,
                      "sessionId": sid.group(1).lower() if sid else None,
                      "surfaceId": panel.group(1).upper()})
 
-    # 부모가 로그인 셸인 것 = 그 탭의 최상위 claude
+    # 부모가 로그인 셸인 것 = 그 탭의 최상위 claude.
+    # ⚠️ 반드시 **argv** 로 본다 — 원래 cmd 로 보면 부모 env 의 SHELL=/bin/zsh 에 걸려
+    #    거의 전부가 '로그인 셸의 자식'이 된다(그러면 이 필터가 아무것도 안 거른다).
     shell_re = re.compile(r"(^|/)(-?zsh|-?bash|-?sh|login)(\s|$)")
-    mains = [r for r in rows if shell_re.search(cmd_by_pid.get(r["ppid"], ""))]
+    mains = [r for r in rows if shell_re.search(argv_by_pid.get(r["ppid"], ""))]
 
     # ⚠️ CMUX_PANEL_ID 를 **무조건 믿으면 안 된다** (Claude Code 2.1.246, 실측 2026-09-02).
     #
