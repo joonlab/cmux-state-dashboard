@@ -423,7 +423,11 @@ function workspaceHtml(ws, opts={}){
    "지금 돌고 있나"를 알 수 없다. */
 let NAVIDX = {bySession:{}, bySurface:{}};
 /* 상태 아이콘은 icons.js(STATUS) 한 곳에서만 정한다 — icStatus(state) 로 쓴다. */
-const BSTATL = {running:'작업 중', permission:'권한 대기', waiting:'입력 대기',
+/* ⚠️ 이 표는 nav.py 의 STATUS_LABEL·static/nav.js 의 HEAD 와 **같은 것의 세 번째 사본**이다.
+   서버에 상태를 추가하면 여기도 고쳐야 한다. (question·background 가 오래 빠져 있어
+   카드에 영문 코드가 그대로 찍히고 있었다 — 2026-09-25 에 함께 채웠다.) */
+const BSTATL = {running:'작업 중', permission:'권한 대기', question:'질문 대기',
+                workflow:'워크플로 진행', background:'뒤에서 진행', waiting:'입력 대기',
                 idle:'유휴', unknown:'판정 불가'};
 
 /* cmux 그룹 아이콘(SF Symbol 이름 → lucide) 매핑도 icons.js(SYMBOL) 한 곳뿐이다.
@@ -501,6 +505,21 @@ function bDetail(ws, nv, id, opts){
   const L = [];
   if(nv && nv.lastPromptText) L.push(`<div class="bq">“${esc(nv.lastPromptText)}”</div>`);
   if(nv) L.push(`<div class="bk">${esc(BSTATL[nv.status]||nv.status)} · ${esc(nv.statusSource||'')}</div>`);
+  if(nv && nv.workflow){
+    const w = nv.workflow;
+    const el = w.startedAt ? Math.max(0, Math.round(Date.now()/1000 - w.startedAt)) : null;
+    const dur = el===null ? '' : (el>=3600 ? `${Math.floor(el/3600)}시간 ${Math.floor(el%3600/60)}분`
+                                           : el>=60 ? `${Math.floor(el/60)}분` : `${el}초`);
+    const bits = [];
+    if(w.phase) bits.push(esc(w.phase));
+    if(w.agentsTotal) bits.push(`에이전트 ${w.agentsRunning}/${w.agentsTotal}`);
+    if(dur) bits.push(dur);
+    if(w.runsLive > 1) bits.push(`워크플로 ${w.runsLive}개`);
+    L.push(`<div class="bk wf">${ic('workflow')}<span><b>${esc(w.name||w.runId)}</b>`
+         + (bits.length?` · ${bits.join(' · ')}`:'')
+         + (w.labels && w.labels.length ? `<br>${w.labels.map(esc).join(' · ')}` : '')
+         + `</span></div>`);
+  }
   if(nv && nv.askText)
     L.push(`<div class="bk ask">${ic('circle-question-mark')}<span>${esc(nv.askText)}</span></div>`);
   if(nv && /추정|없음|버림/.test(nv.sessionIdSource||''))

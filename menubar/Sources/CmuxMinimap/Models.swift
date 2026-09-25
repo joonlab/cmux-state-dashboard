@@ -53,6 +53,8 @@ struct NavResponse: Decodable {
     var runningCount: Int { counts["running"] ?? 0 }
     /// 턴은 끝났는데 뒤에서 셸이 돌고 있는 탭 수. 막힘과 달리 **내가 없어도 진행된다**.
     var backgroundCount: Int { counts["background"] ?? 0 }
+    /// 다이내믹 워크플로가 도는 탭 수. 에이전트 여럿이 단계를 밟는 긴 작업이다.
+    var workflowCount: Int { counts["workflow"] ?? 0 }
 
     /// 서버가 준 순서로 줄 세운다. 목록 안에서는 최근 활동이 위로.
     func sorted(_ list: [NavTab]) -> [NavTab] {
@@ -117,7 +119,7 @@ struct NavGroup: Decodable {
 
 /// 서버가 주는 상태 문자열의 표시용 매핑. **판정하지 않는다** — 판정은 `nav.decide_status` 가 정본이다.
 enum TabStatus: String {
-    case permission, question, running, background, waiting, idle, unknown
+    case permission, question, running, workflow, background, waiting, idle, unknown
 }
 
 struct FocusResult: Decodable {

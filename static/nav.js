@@ -3,6 +3,7 @@
 window.NAV = (function(){
   /* 상태 아이콘 표는 icons.js(STATUS) 한 곳에만 둔다 — icStatus(state) 로 쓴다. */
   const HEAD = {running:'작업 중', permission:'권한 대기', question:'질문 대기',
+                workflow:'워크플로 진행',
                 background:'뒤에서 진행', waiting:'입력 대기', idle:'유휴', unknown:'판정 불가'};
   const POLL_MS = 5000;
   /* 최근순보다 **앞에 두는** 상태. 둘 다 '지금 나와 관계된 것'이지만 급한 정도가 다르다:
@@ -18,7 +19,7 @@ window.NAV = (function(){
      묶어 최근순에 맡긴다. 그래서 서버의 statusOrder 를 그대로 쓸 수는 없다(그건 전부를 가른다).
      ⚠️ 대신 **서버에 상태를 추가하면 여기도 봐야 한다.** background 를 넣고 이걸 안 고쳐서
         한동안 '뒤에서 진행'이 유휴와 같은 층에 있었다(2026-09-07). */
-  const URGENT = {permission: 0, question: 0, running: 1, background: 2};
+  const URGENT = {permission: 0, question: 0, running: 1, workflow: 2, background: 3};
   /* 세션 UUID 를 명령줄에서 못 읽은 경우. 상태·활동의 근거가 그만큼 약하다는 뜻이라
      조용히 넘기지 않고 카드에 드러낸다(이 저장소 원칙: 근거를 함께 보여 준다). */
   const WEAK_SID = /추정|없음|버림/;
@@ -856,6 +857,11 @@ let dragGk = null, dragWin = null;
         `<span class="legend">` +
           `<b class="perm${nPerm ? ' hot' : ''}">${icStatus('permission')} 막힘 ${nPerm}</b>` +
           ` · ${icStatus('running')} 작업중 ${c.running||0}` +
+          /* 워크플로·뒤에서 진행은 **있을 때만** 적는다. 늘 있는 상태가 아니라서 0 을 박아 두면
+             줄만 길어지고, 반대로 숫자가 뜨는 것 자체가 신호가 된다.
+             (합이 total 과 안 맞아 보이던 것도 이 둘이 빠져 있어서였다 — 2026-09-25) */
+          (c.workflow ? ` · ${icStatus('workflow')} 워크플로 ${c.workflow}` : '') +
+          (c.background ? ` · ${icStatus('background')} 뒤에서 ${c.background}` : '') +
           ` · ${icStatus('waiting')} 대기 ${c.waiting||0}` +
           ` · ${icStatus('idle')} 유휴 ${c.idle||0}</span>` +
         (query ? `<span>${ic('search')} ‘${esc(query)}’ <b>${shown.length}</b>개</span>` : '') +

@@ -49,8 +49,8 @@ APPLE_EPOCH_OFFSET = 978307200.0
 #   running 보다 아래인 이유: 지금 이 순간 내가 볼 것은 없다(내가 없어도 진행된다).
 #   waiting 보다 위인 이유: 그건 **완전히 멈춘** 것이고 이건 곧 다시 움직인다 —
 #   게다가 끝나면 사람이 한 번 찔러 줘야 다음이 이어지므로, 그냥 대기와 섞으면 방치된다.
-STATUS_ORDER = {"permission": 0, "question": 0, "running": 1, "background": 2,
-                "waiting": 3, "idle": 4, "unknown": 5}
+STATUS_ORDER = {"permission": 0, "question": 0, "running": 1, "workflow": 2,
+                "background": 3, "waiting": 4, "idle": 5, "unknown": 6}
 # cmux 가 '그냥 프롬프트 대기'에 쓰는 고정 본문. 이것과 다르면 질문 본문이 실린 것이다.
 WAITING_GENERIC = "Claude is waiting for your input"
 # AskUserQuestion 전용 알림(title='Claude question')의 고정 본문 — 질문 **텍스트는 없다**.
@@ -71,6 +71,7 @@ STATUS_LABEL = {
     "running": "작업 중",
     "permission": "권한 대기",
     "question": "질문 대기",
+    "workflow": "워크플로 진행",
     "background": "뒤에서 진행",
     "waiting": "입력 대기",
     "idle": "유휴",
@@ -133,6 +134,114 @@ def background_shells():
                 pass
     _BG_CACHE["at"], _BG_CACHE["val"] = now, out
     return out
+
+# ── 다이내믹 워크플로 ────────────────────────────────────────────────
+# Workflow 도구가 돌면 **본 세션의 transcript 가 통째로 멈춘다**(도구 결과가 아직 없으므로).
+# 그래서 이 감지가 없으면 그 탭은 15분간 '작업 중'으로 보이다가 RUNNING_MAX_SEC 를 넘겨
+# **'유휴'로 뒤집힌다** — 실제로는 에이전트 여럿이 한창 돌고 있는데도.
+# 살아 있다는 증거는 워크플로 에이전트들의 transcript 다:
+#     <프로젝트>/<세션>/subagents/workflows/wf_<런id>/agent-*.jsonl   ← 돌 때 계속 append
+#     .../journal.jsonl   ← {"type":"started"|"result", label, phase} 이벤트
+WF_LIVE_SEC = 150          # agent jsonl 이 이 안에 갱신됐으면 '돌고 있다'
+_WF_CACHE = {"val": {}}        # 세션id → (조회시각, 결과)
+_WF_NAME_CACHE = {}        # 런id → 워크플로 이름(스크립트 파일명에서). 안 바뀌므로 영구 캐시
+
+
+def _wf_name(sid, run_id):
+    """워크플로 이름. 스크립트가 `<이름>-wf_<런id>.js` 로 저장돼 있다.
+
+    ⚠️ 스크립트는 **세션의 cwd 로 만들어진 프로젝트 폴더**에, 에이전트 기록은 transcript 쪽
+       폴더에 들어간다(실측: 같은 세션인데 둘이 다른 프로젝트 디렉토리였다). 그래서 이름은
+       프로젝트 폴더를 가리지 않고 찾는다.
+    """
+    if run_id in _WF_NAME_CACHE:
+        return _WF_NAME_CACHE[run_id]
+    name = None
+    for f in glob.glob(os.path.join(CLAUDE_PROJECTS, "*", sid, "workflows", "scripts",
+                                    f"*{run_id}*.js")):
+        base = os.path.basename(f)
+        cut = base.find("-wf_")
+        name = base[:cut] if cut > 0 else base[:-3]
+        break
+    _WF_NAME_CACHE[run_id] = name
+    return name
+
+
+def _wf_journal(path):
+    """journal.jsonl → (돌고 있는 에이전트 라벨들, 전체 시작 수, 마지막 단계)."""
+    started, done, phase = {}, set(), None
+    try:
+        with open(path, "rb") as f:
+            for ln in f.read().splitlines():
+                try:
+                    o = json.loads(ln)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                t, aid = o.get("type"), o.get("agentId")
+                if t == "started" and aid:
+                    started[aid] = o.get("label") or aid[:8]
+                    phase = o.get("phase") or phase
+                elif t == "result" and aid:
+                    done.add(aid)
+    except OSError:
+        return [], 0, None
+    return [lb for aid, lb in started.items() if aid not in done], len(started), phase
+
+
+def workflow_for(sid, tpath, use_cache=True):
+    """그 세션에서 **지금 돌고 있는** 다이내믹 워크플로. 없으면 None.
+
+    ⚠️ 세션 하나만 본다. 전역 glob(`projects/*/*/subagents/...`)으로 훑으면 과거 워크플로
+       286개까지 뒤져 71ms 가 든다(실측). 탭의 세션만 보면 폴더 존재 확인 한 번으로 끝난다.
+    """
+    if not sid or not tpath:
+        return None
+    now = time.time()
+    hit = _WF_CACHE["val"].get(sid)
+    if use_cache and hit and now - hit[0] < 3.0:
+        return hit[1]
+    live = os.path.basename(tpath)[:-6]          # 이어진 세션이면 사슬 끝
+    base = os.path.join(os.path.dirname(tpath), live, "subagents", "workflows")
+    out = {}
+    wdirs = glob.glob(os.path.join(base, "wf_*")) if os.path.isdir(base) else []
+    for wdir in wdirs:
+        agents = glob.glob(os.path.join(wdir, "agent-*.jsonl"))
+        if not agents:
+            continue
+        try:
+            fresh = max(os.path.getmtime(a) for a in agents)
+        except OSError:
+            continue
+        if now - fresh > WF_LIVE_SEC:      # 끝났거나 멈춘 것 — '지금 돌고 있는' 것만 센다
+            continue
+        run_id = os.path.basename(wdir)
+        jpath = os.path.join(wdir, "journal.jsonl")
+        running, total, phase = _wf_journal(jpath)
+        # 시작 시각: **meta.json 의 mtime**. 에이전트 jsonl 의 ctime 은 쓰기마다 바뀌어
+        # "방금 시작한 것"처럼 보인다(실측: 14분 된 워크플로가 165초로 나왔다).
+        # meta.json 은 스폰 때 한 번 쓰이고 그대로다.
+        try:
+            metas = glob.glob(os.path.join(wdir, "agent-*.meta.json"))
+            cands = [os.path.getmtime(m) for m in metas]
+            if os.path.exists(jpath):
+                cands.append(os.path.getmtime(jpath))
+            started_at = min(cands) if cands else None
+        except OSError:
+            started_at = None
+        cur = {"runId": run_id, "name": _wf_name(live, run_id), "phase": phase,
+               "agentsRunning": len(running), "agentsTotal": total,
+               "labels": running[:6], "startedAt": started_at, "lastActivity": fresh}
+        # 한 세션이 워크플로를 여럿 돌릴 수 있다 — 가장 최근 것을 대표로 하고 수는 따로 센다.
+        prev = out.get("best")
+        cur["runsLive"] = (prev.get("runsLive", 1) + 1) if prev else 1
+        if prev and prev["lastActivity"] > cur["lastActivity"]:
+            prev["runsLive"] = cur["runsLive"]
+        else:
+            out["best"] = cur
+    val = out.get("best")
+    _WF_CACHE["val"][sid] = (now, val)
+    return val
+
 PROC_TTL = 8.0             # 초 — ps -E 출력이 2.8MB/125ms 라 상시 폴링에선 따로 캐시한다
 
 
@@ -838,13 +947,29 @@ STALE_SEC = 6 * 3600
 RUNNING_MAX_SEC = 15 * 60
 
 
-def decide_status(tab_title, notif, last_activity, now, act_src=None, turn=None, bg=0):
-    """(status, source). `bg` 는 그 세션 밑에 살아 있는 셸 수.
+def decide_status(tab_title, notif, last_activity, now, act_src=None, turn=None, bg=0, wf=None):
+    """(status, source). `bg` 는 살아 있는 셸 수, `wf` 는 돌고 있는 워크플로(없으면 None).
 
     ⚠️ 백그라운드 판정을 **여기 한 곳에서만** 한다. 셸이 살아 있다는 사실은 턴이 끝났을 때만
        뜻이 있으므로(전경 명령과 구별되지 않는다), 기존 판정이 '대기'로 결론 난 뒤에 얹는다.
+
+    ★ 워크플로는 반대로 **기존 판정을 덮는다.** Workflow 도구가 도는 동안 본 세션의
+      transcript 는 통째로 멈추므로(도구 결과가 아직 없다) 나머지 근거가 전부 낡는다 —
+      그대로 두면 15분 뒤 RUNNING_MAX_SEC 에 걸려 **'유휴'로 뒤집힌다.** 에이전트 jsonl 이
+      방금 갱신됐다는 것이 여기서 가장 확실한 증거다.
+      단 **막힘(0층)은 못 이긴다** — 사람이 답해야 푸는 것이 언제나 먼저다.
     """
     st, src = _decide_status(tab_title, notif, last_activity, now, act_src, turn)
+    # 워크플로가 끝나면 도구 결과가 들어와 **본 transcript 가 다시 움직인다.** 그게 에이전트
+    # 기록보다 새로우면 이미 끝난 것이다 — 그때까지 WF_LIVE_SEC(150초)를 기다리면 다 끝난
+    # 탭이 2분 넘게 '진행 중'으로 남는다.
+    if wf and last_activity and last_activity > (wf.get("lastActivity") or 0):
+        wf = None
+    if wf and STATUS_ORDER.get(st, 9) != 0:
+        # 근거만 적는다 — 이름·단계·에이전트 수는 카드의 전용 줄(.bk.wf)이 보여 준다.
+        # 둘 다 적으면 같은 말이 두 번 나온다(2026-09-25 화면 확인).
+        ago = int(now - (wf.get("lastActivity") or now))
+        return "workflow", f"워크플로 에이전트 기록 {max(ago, 0)}초 전 갱신"
     if st == "waiting" and bg > 0:
         return "background", f"{src} + 살아 있는 셸 {bg}개"
     return st, src
@@ -1087,8 +1212,9 @@ def collect(use_cache=True):
         turn = (ti["lastRole"], ti["lastStop"]) if ti["lastRole"] else None
         # 이 패널의 상태 마커가 사라진 이유를 화면이 말할 수 있게 한다
         renamed = bool(_RENAMED.get(str(p["surfaceId"]).upper()))
+        wf = workflow_for(sid, ti.get("transcript"))
         status, source = decide_status(tab_title, notif, last_activity, now, act_src, turn,
-                                       bg_map.get(p["pid"], 0))
+                                       bg_map.get(p["pid"], 0), wf)
         # 이어진 세션이면 «지금 살아 있는» 쪽 id 도 함께 싣는다. 상태·활동은 이미 그쪽
         # transcript 로 판정했으므로(transcript_path 가 사슬을 따라간다), 화면이 옛 id 만
         # 보여 주면 resume 도 옛 것을 가리켜 사람을 헷갈리게 한다.
@@ -1102,6 +1228,7 @@ def collect(use_cache=True):
             "bgShells": bg_map.get(p["pid"], 0),
             "sessionId": sid,
             "liveSessionId": live_sid,      # 이어진 경우에만 값이 있다(아니면 None)
+            "workflow": wf,                 # 돌고 있는 다이내믹 워크플로(없으면 None)
             "sessionIdSource": (f"{sid_src} · 이어진 세션 {live_sid[:8]} 로 추적"
                                 if live_sid else sid_src),
             "lastHumanAt": ti["lastHumanAt"],

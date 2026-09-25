@@ -122,10 +122,18 @@ final class StatusItemController {
         }
 
         let blocked = s.blockedCount, running = s.runningCount, bg = s.backgroundCount
+        let wf = s.workflowCount
         let (sym, color, count): (String, NSColor, Int)
         if blocked > 0 {
             sym = Theme.symbol(for: .permission); color = Theme.token("amber", dark: dark)
             count = blocked
+        } else if wf > 0 {
+            // ⚠️ 목록 순서(작업중 → 워크플로)와 **일부러 다르다.** 목록은 탭 전부를 줄 세우는
+            //    일이고 배지는 **머리기사 하나**를 고르는 일이다. 탭 수십 개가 조용히 도는 건
+            //    평상시 모습이라 'running N' 은 정보가 거의 없는 반면, 에이전트 여럿이 단계를
+            //    밟는 워크플로는 사건이다. 그래서 배지에서는 running 보다 앞에 둔다.
+            sym = Theme.symbol(for: .workflow); color = Theme.token("violet", dark: dark)
+            count = wf
         } else if running > 0 {
             // 살아 있는 것을 한 숫자로 보여 주되(작업중 + 뒤에서 진행), 색은 급한 쪽을 따른다.
             sym = Theme.symbol(for: .running); color = Theme.token("green", dark: dark)
@@ -146,7 +154,8 @@ final class StatusItemController {
         b.image = badge(sym, count: count, color: color)
         b.attributedTitle = NSAttributedString(string: "")
         let stale = client.lastError.map { " (갱신 실패: \($0))" } ?? ""
-        b.toolTip = "막힘 \(blocked) · 작업중 \(running) · 뒤에서 \(bg) · 탭 \(s.total)\(stale)"
+        b.toolTip = "막힘 \(blocked) · 작업중 \(running) · 워크플로 \(wf) · 뒤에서 \(bg)"
+                  + " · 탭 \(s.total)\(stale)"
     }
 
     /// 아이콘과 숫자를 **한 장으로 합성**한다.

@@ -253,5 +253,9 @@ body.editing.grabbing, body.editing.grabbing *{cursor:grabbing !important}
 /* 시스템이 깨운 활동 — 순서는 사람 활동과 똑같이 취급하되(진짜로 뭔가 하긴 했다) 눈으로는
    구분되게 한다. 이게 없으면 "보지도 않은 탭이 왜 맨 위냐"가 반복된다(신고 2026-08-26). */
 .btag.wake{color:var(--amber);border-color:rgb(var(--amber-rgb) / .45)}
+/* 워크플로 진행 — 아이콘 + 이름/단계/에이전트 수. wake(앰버)와 헷갈리지 않게 보라. */
+.bk.wf{color:var(--violet);opacity:.95;display:flex;gap:5px;align-items:flex-start}
+.bk.wf .lic{flex:none;width:12px;height:12px;margin-top:1px}
+.bk.wf b{color:var(--violet)}
 .bk.wake{color:var(--amber);opacity:.95}
 .bk.wake b{color:var(--amber)}

@@ -67,6 +67,10 @@
      amber 는 주황 쪽 황금, 이쪽은 밝은 레몬으로 갈라 둔다. gold(베이지)는 채도가 낮아
      배경 틴트로 깔면 회색으로 묻혀서 따로 뽑았다. */
   --lemon:#dfc95f;    --lemon-rgb:223 201 95;    /* 뒤에서 진행 */
+  /* 워크플로 진행 — 초록(작업중)·레몬(뒤에서)과 **같은 램프에 두면 안 된다.** 저 둘은
+     "이 탭이 뭔가 하고 있다"인데 이건 "에이전트 여럿이 딴 데서 돌고 있다"라 성격이 다르다.
+     노랑~초록 띠 밖의 보라로 빼서 모양(사슬)과 색이 같은 말을 하게 한다. */
+  --violet:#a394f0;   --violet-rgb:163 148 240;  /* 워크플로 진행 */
   --amber:#d9ae45;    --amber-rgb:217 174 69;    /* 권한 대기 */
   --claude:#d9855f;   --claude-rgb:217 133 95;   /* 대기 · Claude 세션 표식 */
   --red:#ef6157;      --red-rgb:239 97 87;       /* 판정 불가 */
@@ -155,6 +159,7 @@
     /* ── 의미층 ── */
     --green:#1a7f3c;    --green-rgb:26 127 60;
     --lemon:#7a6a12;    --lemon-rgb:122 106 18;
+  --violet:#5b45c9;   --violet-rgb:91 69 201;
     --amber:#8a6100;    --amber-rgb:138 97 0;
     --claude:#a8501f;   --claude-rgb:168 80 31;
     --red:#c4322c;      --red-rgb:196 50 44;
@@ -212,6 +217,7 @@
   /* ── 의미층 ── */
   --green:#1a7f3c;    --green-rgb:26 127 60;
   --lemon:#7a6a12;    --lemon-rgb:122 106 18;
+  --violet:#5b45c9;   --violet-rgb:91 69 201;
   --amber:#8a6100;    --amber-rgb:138 97 0;
   --claude:#a8501f;   --claude-rgb:168 80 31;
   --red:#c4322c;      --red-rgb:196 50 44;
@@ -291,6 +297,7 @@
 .lic.st-running{color:var(--green)}
 .lic.st-permission,.lic.st-question{color:var(--amber)}
 .lic.st-background{color:var(--lemon)}
+.lic.st-workflow{color:var(--violet)}
 .lic.st-waiting{color:var(--claude)}
 .lic.st-idle{color:var(--dim)}
 .lic.st-unknown{color:var(--red)}

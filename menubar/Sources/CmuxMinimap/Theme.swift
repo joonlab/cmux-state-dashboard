@@ -8,6 +8,7 @@ enum Theme {
     private static let dark: [String: NSColor] = [
         "green":  .init(srgbRed: 0x5e/255, green: 0xd1/255, blue: 0x8a/255, alpha: 1),
         "lemon":  .init(srgbRed: 0xdf/255, green: 0xc9/255, blue: 0x5f/255, alpha: 1),
+        "violet": .init(srgbRed: 0xa3/255, green: 0x94/255, blue: 0xf0/255, alpha: 1),
         "amber":  .init(srgbRed: 0xd9/255, green: 0xae/255, blue: 0x45/255, alpha: 1),
         "claude": .init(srgbRed: 0xd9/255, green: 0x85/255, blue: 0x5f/255, alpha: 1),
         "dim":    .init(srgbRed: 0x98/255, green: 0xa4/255, blue: 0x9e/255, alpha: 1),
@@ -16,6 +17,7 @@ enum Theme {
     private static let light: [String: NSColor] = [
         "green":  .init(srgbRed: 0x1a/255, green: 0x7f/255, blue: 0x3c/255, alpha: 1),
         "lemon":  .init(srgbRed: 0x7a/255, green: 0x6a/255, blue: 0x12/255, alpha: 1),
+        "violet": .init(srgbRed: 0x5b/255, green: 0x45/255, blue: 0xc9/255, alpha: 1),
         "amber":  .init(srgbRed: 0x8a/255, green: 0x61/255, blue: 0x00/255, alpha: 1),
         "claude": .init(srgbRed: 0xa8/255, green: 0x50/255, blue: 0x1f/255, alpha: 1),
         "dim":    .init(srgbRed: 0x55/255, green: 0x5c/255, blue: 0x5b/255, alpha: 1),
@@ -41,6 +43,8 @@ enum Theme {
         case .running:               return token("green", dark: dark)
         // amber(권한 대기)와 **같은 노랑이면 안 된다** — 급한 정도가 정반대다.
         // amber 는 주황 쪽 황금, 이쪽은 밝은 레몬(tokens.css --lemon 과 같은 값).
+        // 워크플로 — 초록(작업중)·레몬(뒤에서)과 같은 램프 밖으로 뺀다(tokens.css --violet).
+        case .workflow:              return token("violet", dark: dark)
         case .background:            return token("lemon", dark: dark)
         case .waiting:               return token("claude", dark: dark)
         case .idle:                  return token("dim", dark: dark)
@@ -53,6 +57,8 @@ enum Theme {
         switch status {
         case .permission, .question: return "lock.fill"                 // lucide lock-keyhole
         case .running:               return "circle.dotted"             // lucide loader-circle
+        // 상자 둘이 이어진 그림 — 웹의 lucide workflow 와 같은 뜻.
+        case .workflow:              return "rectangle.connected.to.line.below"
         case .background:            return "bolt.fill"                 // lucide zap
         case .waiting:               return "smallcircle.filled.circle" // lucide circle-dot
         case .idle:                  return "moon.fill"                 // lucide moon
