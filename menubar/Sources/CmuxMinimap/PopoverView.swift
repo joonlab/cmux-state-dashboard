@@ -77,12 +77,14 @@ struct PopoverView: View {
         }
     }
 
-    // ── 목록: 막힘 + 작업중만. 대기·유휴는 위 요약 숫자로 충분하다 ──────
+    // ── 목록: 막힘 · 작업중 · 워크플로 · 뒤에서 진행. 대기·유휴는 위 요약 숫자로 충분하다 ──
     // cmux 그룹(제품·앱 개발 / 교육·컨설팅 / 인프라·자동화·운영 …)으로 묶는다.
     // "지금 어느 영역이 막혔나"가 제목 줄을 읽기 전에 먼저 보인다.
     private func list(_ s: NavResponse) -> some View {
-        let shown = s.sorted(s.tabs.filter {
-            s.blocked.contains($0.status) || $0.status == "running" || $0.status == "background" })
+        // 어떤 상태를 싣는지는 **서버 statusOrder 에서 파생**한다(NavResponse.listedStatuses).
+        // 여기에 상태 이름을 손으로 적어 두면 서버에 상태가 늘 때마다 목록이 조용히 빠진다.
+        let listed = s.listedStatuses
+        let shown = s.sorted(s.tabs.filter { listed.contains($0.status) })
         let sections = Self.sections(shown)
         return Group {
             if shown.isEmpty {

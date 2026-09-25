@@ -73,8 +73,21 @@ final class StatusItemController {
                 FileHandle.standardError.write(Data("SELFTEST: status item 창 없음\n".utf8))
                 NSApp.terminate(nil); return
             }
+            // 서버 응답을 한 번 받아 **무엇이 목록에 실리는지** 숫자로 남긴다.
+            // 팝오버는 눈으로만 볼 수 있어서, 이게 없으면 "목록에 빠졌다"를 사람이 화면을
+            // 열어 보기 전까지 아무도 모른다(실제로 workflow 가 그렇게 빠져 있었다).
+            await client.refresh()
+            if let s = client.snapshot {
+                let listed = s.listedStatuses
+                var by: [String: Int] = [:]
+                for t in s.tabs where listed.contains(t.status) { by[t.status, default: 0] += 1 }
+                let desc = by.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }
+                    .joined(separator: " · ")
+                FileHandle.standardError.write(Data(
+                    "SELFTEST listed=\(listed.sorted()) rows=\(by.values.reduce(0,+)) [\(desc)]\n".utf8))
+            }
             popover.show(relativeTo: b.bounds, of: b, preferredEdge: .minY)
-            try? await Task.sleep(for: .milliseconds(600))
+            try? await Task.sleep(for: .milliseconds(4000))   // 화면 캡처할 틈
             let pf = popover.contentViewController?.view.window?.frame
             let gap = pf.map { w.frame.minY - $0.maxY }
             var s = "SELFTEST button.window=\(w.frame)\n"

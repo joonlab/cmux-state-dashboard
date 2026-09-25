@@ -48,6 +48,20 @@ struct NavResponse: Decodable {
     }
 
     var blocked: [String] { blockedStatuses ?? Self.legacyBlockedFallback }
+
+    /// 팝오버 **목록**에 실을 상태 = 서버 `statusOrder` 에서 '입력 대기'보다 위인 것 전부
+    /// (막힘 · 작업중 · 워크플로 · 뒤에서 진행). 대기·유휴는 위쪽 요약 숫자로 충분하다.
+    ///
+    /// ⚠️ 손으로 적지 않는다. 예전엔 `blocked + running + background` 를 박아 뒀고, 그래서
+    ///    서버에 `workflow` 가 생겼을 때 요약 줄에는 «워크플로 진행 2»가 뜨는데 **목록에는
+    ///    한 줄도 없었다**(신고 2026-09-25). 서버 순서에서 파생하면 상태가 늘어도 안 건드린다.
+    var listedStatuses: Set<String> {
+        guard let cut = statusOrder.firstIndex(of: "waiting"), cut > 0 else {
+            // statusOrder 를 안 주는 구버전 서버 — 아는 만큼만 싣는다(조용히 비우지 않는다).
+            return Set(blocked + ["running", "workflow", "background"])
+        }
+        return Set(statusOrder.prefix(cut))
+    }
     /// 메뉴바 배지 숫자 = 막힘 상태들의 합.
     var blockedCount: Int { blocked.reduce(0) { $0 + (counts[$1] ?? 0) } }
     var runningCount: Int { counts["running"] ?? 0 }
