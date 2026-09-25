@@ -993,7 +993,17 @@ def _decide_status(tab_title, notif, last_activity, now, act_src=None, turn=None
         #    실측 2026-08-26: 16시간 전 권한 알림 하나가 영원히 '권한 대기'로 굳었다.
         #    → 알림과 **독립된** 활동 근거로만 신선도를 잰다(없으면 알림 자신의 나이로).
         indep = None if act_src == "알림" else (last_activity or 0)
-        if notif["at"] >= (indep or 0) - 30:
+        # ★ 턴이 끝났으면 슬랙(30초)을 주지 않는다.
+        #   슬랙은 «질문이 막 떴는데 같은 순간 transcript 에도 기록이 남는» 경우를 지키려고 둔 것이다
+        #   — 그게 없으면 1~2초 차로 알림이 곧바로 죽는다. 그런데 `assistant/end_turn` 은
+        #   **대기 중인 도구 호출이 없다**는 뜻이라, 그 뒤로는 질문·권한이 이미 답해진 것이다.
+        #   실측 2026-09-25: 질문 15:52:47 → end_turn 15:53:13(26초 차, 슬랙 안) → 9분 뒤에도
+        #   «질문 대기» 자물쇠였다. 사람은 이미 답했는데 화면만 막혀 있었다.
+        #   ⚠️ 대신 «답했다»는 판정은 **독립 근거가 있을 때만** 한다(indep 이 None 이면 그대로 둔다)
+        #     — 대화 기록을 못 읽는 탭에서 알림을 무효로 만들면 막힘이 통째로 안 보인다.
+        answered = bool(turn and turn[0] == "assistant" and turn[1] == "end_turn"
+                        and indep and indep > notif["at"])
+        if not answered and notif["at"] >= (indep or 0) - 30:
             if now - (indep or notif["at"]) <= STALE_SEC:
                 if notif["kind"] == "permission":
                     return "permission", "cmux 알림(권한 요청)"
