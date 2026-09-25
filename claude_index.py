@@ -228,8 +228,9 @@ _title_index_ts = 0.0
 _TITLE_TTL = 60            # 초
 _TITLE_MAX_AGE_DAYS = 45   # 이보다 오래 방치된 세션은 인덱싱하지 않음
 _AI_TITLE_RE = re.compile(rb'"aiTitle"\s*:\s*"((?:[^"\\]|\\.)*)"')
-# cmux 가 터미널 제목 앞에 붙이는 상태 표식(✳ = claude 실행중) + 유사 기호
-_TITLE_PREFIX = re.compile(r"^[\s✳✻✽*·•►▶\-–—]+")
+# cmux 가 터미널 제목 앞에 붙이는 상태 표식(✳ = 유휴, ◐ 등 = 작업 중 스피너 — nav.SPINNER_CHARS) + 유사 기호
+# ★ 스피너가 빠져 있어 **작업 중인 동안만** 제목→세션을 못 찾았다(폰 대화 화면 409, 2026-09-25 실측)
+_TITLE_PREFIX = re.compile(r"^[\s✳✻✽*·•►▶\-–—◐◑◒◓◴◵◶◷⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]+")
 
 
 def normalize_title(t):
