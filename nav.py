@@ -242,6 +242,89 @@ def workflow_for(sid, tpath, use_cache=True):
     _WF_CACHE["val"][sid] = (now, val)
     return val
 
+# ── 백그라운드 서브에이전트(Agent 도구, run_in_background) ─────────────────────
+# 본 세션은 에이전트를 띄워 두고 **턴을 끝낸다**(«Waiting for 1 background agent to finish»).
+# 그래서 transcript 만 보면 `end_turn` → «입력 대기»로 떨어진다 — 실제로는 에이전트가 30분째
+# 일하고 있는데도(실측 2026-09-27 케어캠프 22차 탭: 대시보드는 대기, 화면은 에이전트 진행 중).
+# 셸(bgShells)·워크플로 감지는 있었지만 이 경로만 비어 있었다.
+#     <프로젝트>/<세션>/subagents/agent-<id>.jsonl       ← 돌 때 계속 append
+#     <프로젝트>/<세션>/subagents/agent-<id>.meta.json   ← {"description", "requestShape":"background", …}
+# 끝났다는 증거 둘: 에이전트의 마지막 assistant 기록이 `end_turn` 이거나, 본 transcript 꼬리에
+# `<task-id>{id}</task-id>` 알림(완료·중지)이 들어와 있으면 끝난 것이다.
+BGA_MAX_SEC = 15 * 60      # 이보다 오래 안 움직인 에이전트는 죽은 것으로 본다(RUNNING_MAX_SEC 와 같은 여유값)
+BGA_TAIL = 64 * 1024
+_BGA_CACHE = {"val": {}}   # 세션id → (조회시각, 결과)
+
+
+def _tail_bytes(path, n):
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - n))
+            return f.read()
+    except OSError:
+        return b""
+
+
+def _agent_ended(path):
+    """에이전트 기록의 마지막 assistant 줄이 end_turn 이면 True. 못 읽으면 False(모름 → 살아 있음 쪽)."""
+    lines = _tail_bytes(path, BGA_TAIL).split(b"\n")[1:]     # 첫 줄은 잘렸을 수 있다
+    for raw in reversed(lines):
+        if b'"assistant"' not in raw:
+            continue
+        try:
+            o = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if o.get("type") == "assistant":
+            return (o.get("message") or {}).get("stop_reason") == "end_turn"
+    return False
+
+
+def bg_agents_for(sid, tpath, use_cache=True):
+    """그 세션에서 **지금 돌고 있는** 백그라운드 서브에이전트 목록(최근 것 먼저). 없으면 None."""
+    if not sid or not tpath:
+        return None
+    now = time.time()
+    hit = _BGA_CACHE["val"].get(sid)
+    if use_cache and hit and now - hit[0] < 3.0:
+        return hit[1]
+    live = os.path.basename(tpath)[:-6]
+    base = os.path.join(os.path.dirname(tpath), live, "subagents")
+    out = []
+    notes = None
+    for a in (glob.glob(os.path.join(base, "agent-*.jsonl")) if os.path.isdir(base) else []):
+        try:
+            fresh = os.path.getmtime(a)
+        except OSError:
+            continue
+        if now - fresh > BGA_MAX_SEC:
+            continue
+        aid = os.path.basename(a)[len("agent-"):-len(".jsonl")]
+        meta_path = a[:-len(".jsonl")] + ".meta.json"
+        try:
+            with open(meta_path, encoding="utf-8") as f:
+                meta = json.load(f)
+            started_at = os.path.getmtime(meta_path)
+        except (OSError, json.JSONDecodeError, ValueError):
+            meta, started_at = {}, None
+        # 전경 에이전트는 본 세션이 도구 결과를 기다리는 중이라 이미 «작업 중»으로 잡힌다
+        if meta.get("requestShape") not in (None, "background"):
+            continue
+        if _agent_ended(a):
+            continue
+        if notes is None:
+            notes = _tail_bytes(tpath, 256 * 1024)
+        if f"<task-id>{aid}</task-id>".encode() in notes:   # 완료·중지 알림이 이미 왔다
+            continue
+        out.append({"agentId": aid, "description": meta.get("description"),
+                    "agentType": meta.get("agentType"), "startedAt": started_at, "lastActivity": fresh})
+    out.sort(key=lambda x: -x["lastActivity"])
+    val = out or None
+    _BGA_CACHE["val"][sid] = (now, val)
+    return val
+
 PROC_TTL = 8.0             # 초 — ps -E 출력이 2.8MB/125ms 라 상시 폴링에선 따로 캐시한다
 
 
@@ -947,8 +1030,9 @@ STALE_SEC = 6 * 3600
 RUNNING_MAX_SEC = 15 * 60
 
 
-def decide_status(tab_title, notif, last_activity, now, act_src=None, turn=None, bg=0, wf=None):
-    """(status, source). `bg` 는 살아 있는 셸 수, `wf` 는 돌고 있는 워크플로(없으면 None).
+def decide_status(tab_title, notif, last_activity, now, act_src=None, turn=None, bg=0, wf=None, agents=None):
+    """(status, source). `bg` 는 살아 있는 셸 수, `wf` 는 돌고 있는 워크플로(없으면 None),
+    `agents` 는 돌고 있는 백그라운드 서브에이전트 목록(bg_agents_for).
 
     ⚠️ 백그라운드 판정을 **여기 한 곳에서만** 한다. 셸이 살아 있다는 사실은 턴이 끝났을 때만
        뜻이 있으므로(전경 명령과 구별되지 않는다), 기존 판정이 '대기'로 결론 난 뒤에 얹는다.
@@ -970,8 +1054,10 @@ def decide_status(tab_title, notif, last_activity, now, act_src=None, turn=None,
         # 둘 다 적으면 같은 말이 두 번 나온다(2026-09-25 화면 확인).
         ago = int(now - (wf.get("lastActivity") or now))
         return "workflow", f"워크플로 에이전트 기록 {max(ago, 0)}초 전 갱신"
-    if st == "waiting" and bg > 0:
-        return "background", f"{src} + 살아 있는 셸 {bg}개"
+    # 셸과 백그라운드 에이전트는 같은 자리다 — 턴은 끝났는데 뒤에서 일이 돈다.
+    if st == "waiting" and (bg > 0 or agents):
+        bits = ([f"백그라운드 에이전트 {len(agents)}개"] if agents else []) + ([f"살아 있는 셸 {bg}개"] if bg > 0 else [])
+        return "background", f"{src} + {' + '.join(bits)}"
     return st, src
 
 
@@ -1223,8 +1309,9 @@ def collect(use_cache=True):
         # 이 패널의 상태 마커가 사라진 이유를 화면이 말할 수 있게 한다
         renamed = bool(_RENAMED.get(str(p["surfaceId"]).upper()))
         wf = workflow_for(sid, ti.get("transcript"))
+        agents = bg_agents_for(sid, ti.get("transcript"))
         status, source = decide_status(tab_title, notif, last_activity, now, act_src, turn,
-                                       bg_map.get(p["pid"], 0), wf)
+                                       bg_map.get(p["pid"], 0), wf, agents)
         # 이어진 세션이면 «지금 살아 있는» 쪽 id 도 함께 싣는다. 상태·활동은 이미 그쪽
         # transcript 로 판정했으므로(transcript_path 가 사슬을 따라간다), 화면이 옛 id 만
         # 보여 주면 resume 도 옛 것을 가리켜 사람을 헷갈리게 한다.
@@ -1239,6 +1326,7 @@ def collect(use_cache=True):
             "sessionId": sid,
             "liveSessionId": live_sid,      # 이어진 경우에만 값이 있다(아니면 None)
             "workflow": wf,                 # 돌고 있는 다이내믹 워크플로(없으면 None)
+            "bgAgents": agents,             # 돌고 있는 백그라운드 서브에이전트(없으면 None)
             "sessionIdSource": (f"{sid_src} · 이어진 세션 {live_sid[:8]} 로 추적"
                                 if live_sid else sid_src),
             "lastHumanAt": ti["lastHumanAt"],

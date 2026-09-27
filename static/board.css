@@ -257,5 +257,8 @@ body.editing.grabbing, body.editing.grabbing *{cursor:grabbing !important}
 .bk.wf{color:var(--violet);opacity:.95;display:flex;gap:5px;align-items:flex-start}
 .bk.wf .lic{flex:none;width:12px;height:12px;margin-top:1px}
 .bk.wf b{color:var(--violet)}
+/* 백그라운드 서브에이전트 — «뒤에서 진행»(lemon) 램프와 같은 색 */
+.bk.bga{color:var(--lemon);display:flex;gap:5px;align-items:flex-start}
+.bk.bga .lic{flex:none;width:12px;height:12px;margin-top:1px}
 .bk.wake{color:var(--amber);opacity:.95}
 .bk.wake b{color:var(--amber)}

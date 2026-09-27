@@ -520,6 +520,16 @@ function bDetail(ws, nv, id, opts){
          + (w.labels && w.labels.length ? `<br>${w.labels.map(esc).join(' · ')}` : '')
          + `</span></div>`);
   }
+  if(nv && nv.bgAgents && nv.bgAgents.length){
+    // 백그라운드 서브에이전트 — 본 세션은 턴을 끝내고 기다리는 중이라 이 줄이 «뭘 기다리는지»다
+    const now = Date.now()/1000;
+    const dur = el => el>=3600 ? `${Math.floor(el/3600)}시간 ${Math.floor(el%3600/60)}분`
+                     : el>=60 ? `${Math.floor(el/60)}분` : `${Math.max(0,Math.round(el))}초`;
+    const rows = nv.bgAgents.slice(0,3).map(a => `<b>${esc(a.description||a.agentType||a.agentId)}</b>`
+      + (a.startedAt ? ` · ${dur(now - a.startedAt)}` : ''));
+    if(nv.bgAgents.length > 3) rows.push(`외 ${nv.bgAgents.length-3}개`);
+    L.push(`<div class="bk bga">${ic('bot')}<span>백그라운드 에이전트 ${nv.bgAgents.length}개<br>${rows.join('<br>')}</span></div>`);
+  }
   if(nv && nv.askText)
     L.push(`<div class="bk ask">${ic('circle-question-mark')}<span>${esc(nv.askText)}</span></div>`);
   if(nv && /추정|없음|버림/.test(nv.sessionIdSource||''))
