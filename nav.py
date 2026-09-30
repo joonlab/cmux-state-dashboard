@@ -907,6 +907,22 @@ def live_session_id(sid):
 _CHUNK = 256 * 1024
 
 
+def _queued_human(o):
+    """작업 도중 보낸 사람 메시지(queued_command 첨부)면 그 본문 텍스트, 아니면 None.
+    origin.kind "peer"(에이전트끼리)·commandMode "task-notification" 은 사람 말이 아니다. origin 없음 = 옛 버전 사람 말."""
+    if o.get("type") != "attachment":
+        return None
+    a = o.get("attachment") or {}
+    if a.get("type") != "queued_command" or a.get("commandMode") != "prompt":
+        return None
+    if (a.get("origin") or {}).get("kind") not in (None, "human"):
+        return None
+    p = a.get("prompt")
+    if isinstance(p, list):
+        p = "\n".join(b.get("text") or "" for b in p if isinstance(b, dict) and b.get("type") == "text")
+    return p if isinstance(p, str) else None
+
+
 def transcript_info(sid, tail_bytes=None, _max_tail=2_000_000):
     """{mtime, cwd, lastPromptAt, lastPromptText, lastRole, ...}. 파일 꼬리만 읽는다.
 
@@ -1014,6 +1030,17 @@ def transcript_info(sid, tail_bytes=None, _max_tail=2_000_000):
                                 info["lastHumanAt"] = pending_at or ts
                             elif ts and pending_at is None:
                                 pending_at = ts
+                    # 작업 도중 보낸 사람 말은 user 줄이 아니라 queued_command 첨부로 남는다(실측 2026-09-30).
+                    # 그걸 안 보면 카드의 «마지막 프롬프트»가 그 앞의 옛 말로 남는다.
+                    q = _queued_human(o)
+                    if q is not None:
+                        if info["lastHumanAt"] is None:
+                            info["lastHumanAt"] = pending_at or ts
+                        if info["lastPromptText"] is None:
+                            cleaned = clean_prompt(q)
+                            if cleaned:
+                                info["lastPromptText"] = cleaned
+                                info["lastPromptAt"] = ts
                     if (info["lastPromptText"] is None and o.get("type") == "user"
                             and o.get("promptSource")):
                         c = (o.get("message") or {}).get("content")
