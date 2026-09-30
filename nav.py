@@ -145,6 +145,31 @@ def background_shells():
 WF_LIVE_SEC = 150          # agent jsonl 이 이 안에 갱신됐으면 '돌고 있다'
 _WF_CACHE = {"val": {}}        # 세션id → (조회시각, 결과)
 _WF_NAME_CACHE = {}        # 런id → 워크플로 이름(스크립트 파일명에서). 안 바뀌므로 영구 캐시
+_WF_TASK_CACHE = {}        # 런id → 비동기 task id(없으면 None = 동기 실행). 안 바뀌므로 영구 캐시
+
+
+def _wf_task_id(tpath, run_id):
+    """비동기로 띄운 워크플로의 task id. 동기 실행(도구 결과가 끝에 한 번)이면 None.
+
+    Workflow 도구는 이제 **뒤에서 돈다** — 도구 결과로 곧바로
+    `{"status":"async_launched","taskId":"we1ziymwy","taskType":"local_workflow",…,"runId":"wf_…"}` 가 남고,
+    끝나면 본 transcript 에 `<task-id>we1ziymwy</task-id> … <status>completed</status>` 알림이 들어온다.
+    런마다 한 번만 찾는다(띄운 기록은 transcript 앞쪽에 있어 꼬리만 읽으면 못 찾는다).
+    """
+    if run_id in _WF_TASK_CACHE:
+        return _WF_TASK_CACHE[run_id]
+    tid = None
+    try:
+        with open(tpath, "rb") as f:
+            data = f.read()
+        for m in re.finditer(rb'"status":"async_launched","taskId":"([^"]+)","taskType":"local_workflow"', data):
+            if f'"runId":"{run_id}"'.encode() in data[m.end():m.end() + 600]:
+                tid = m.group(1).decode()
+                break
+    except OSError:
+        return None                                  # 못 읽었으면 캐시하지 않는다 — 다음에 다시
+    _WF_TASK_CACHE[run_id] = tid
+    return tid
 
 
 def _wf_name(sid, run_id):
@@ -228,7 +253,11 @@ def workflow_for(sid, tpath, use_cache=True):
             started_at = min(cands) if cands else None
         except OSError:
             started_at = None
-        cur = {"runId": run_id, "name": _wf_name(live, run_id), "phase": phase,
+        # 비동기 워크플로면 완료 알림으로 끝을 가린다(에이전트 기록이 150초 식을 때까지 기다리지 않는다)
+        task_id = _wf_task_id(tpath, run_id)
+        if task_id and f"<task-id>{task_id}</task-id>".encode() in _tail_bytes(tpath, 256 * 1024):
+            continue
+        cur = {"runId": run_id, "name": _wf_name(live, run_id), "phase": phase, "async": bool(task_id),
                "agentsRunning": len(running), "agentsTotal": total,
                "labels": running[:6], "startedAt": started_at, "lastActivity": fresh}
         # 한 세션이 워크플로를 여럿 돌릴 수 있다 — 가장 최근 것을 대표로 하고 수는 따로 센다.
@@ -1047,7 +1076,11 @@ def decide_status(tab_title, notif, last_activity, now, act_src=None, turn=None,
     # 워크플로가 끝나면 도구 결과가 들어와 **본 transcript 가 다시 움직인다.** 그게 에이전트
     # 기록보다 새로우면 이미 끝난 것이다 — 그때까지 WF_LIVE_SEC(150초)를 기다리면 다 끝난
     # 탭이 2분 넘게 '진행 중'으로 남는다.
-    if wf and last_activity and last_activity > (wf.get("lastActivity") or 0):
+    # ⚠️ 단 **비동기 워크플로에는 이 규칙을 쓰지 않는다.** 뒤에서 도는 동안 본 세션은 계속 움직인다
+    #    (다른 실험·셸·알림). 실측 2026-09-30: gpt61-sol-eval 이 에이전트 4/6 으로 돌고 있는데 본 기록이
+    #    43초 더 새로워 wf 를 버렸고, 탭은 그냥 «작업 중»으로 보였다. 비동기는 workflow_for 가 완료 알림
+    #    (<task-id>)으로 이미 걸러 낸다.
+    if wf and not wf.get("async") and last_activity and last_activity > (wf.get("lastActivity") or 0):
         wf = None
     if wf and STATUS_ORDER.get(st, 9) != 0:
         # 근거만 적는다 — 이름·단계·에이전트 수는 카드의 전용 줄(.bk.wf)이 보여 준다.
