@@ -260,5 +260,10 @@ body.editing.grabbing, body.editing.grabbing *{cursor:grabbing !important}
 /* 백그라운드 서브에이전트 — «뒤에서 진행»(lemon) 램프와 같은 색 */
 .bk.bga{color:var(--lemon);display:flex;gap:5px;align-items:flex-start}
 .bk.bga .lic{flex:none;width:12px;height:12px;margin-top:1px}
+/* 같은 세션이 탭 여럿에 열림 — 주의(amber) */
+.btag.dup{color:var(--amber-text);border-color:rgb(var(--amber-rgb) / .45);display:inline-flex;align-items:center;gap:4px}
+.btag.dup .lic{width:11px;height:11px}
+.bk.dup{color:var(--amber-text);display:flex;gap:5px;align-items:flex-start}
+.bk.dup .lic{flex:none;width:12px;height:12px;margin-top:1px}
 .bk.wake{color:var(--amber);opacity:.95}
 .bk.wake b{color:var(--amber)}

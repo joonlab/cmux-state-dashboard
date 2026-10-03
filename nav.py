@@ -429,7 +429,10 @@ def claude_processes(use_cache=True):
         panel = re.search(r"CMUX_PANEL_ID=([0-9A-Fa-f-]{36})", cmd)   # 이건 env 라 cmd 에서 찾는다
         if not panel:                    # cmux 탭에서 돌고 있는 것만 대상
             continue
-        sid = re.search(r"--(?:session-id|resume)\s+([0-9a-fA-F-]{36})", argv)
+        # ⚠️ 짧은 `-r <id>` 도 읽는다. 사람이 손으로 이어가면 대개 이 형태다. 예전엔 긴 형태만 읽어서
+        #    `claude -r a2492d93…` 탭이 세션을 못 찾았고, 대화 기록 없이 낡은 질문 알림 하나로
+        #    «질문 대기 🔒»가 됐다(실측 2026-10-04 tab:579 — 실제로는 턴 끝 + 셸 1개).
+        sid = re.search(r"(?:^|\s)(?:--session-id|--resume|-r)(?:\s+|=)([0-9a-fA-F-]{36})", argv)
         rows.append({"pid": pid, "ppid": ppid,
                      "sessionId": sid.group(1).lower() if sid else None,
                      "surfaceId": panel.group(1).upper()})
@@ -1459,6 +1462,16 @@ def collect(use_cache=True):
     for d in (_PREV_STATUS, _BG_DONE_AT):
         for k in [k for k in d if k not in alive]:
             d.pop(k, None)
+    # 같은 세션이 탭 여럿에서 열려 있으면 드러낸다 — 두 claude 프로세스가 한 대화 기록에 번갈아 쓴다.
+    # 상태는 탭마다 다를 수 있다(제목 마커·셸·알림은 프로세스 것). 대화·활동 시각은 같아야 정상이다.
+    by_sid = {}
+    for t in tabs:
+        if t.get("sessionId"):
+            by_sid.setdefault(t["sessionId"], []).append(t)
+    for group in by_sid.values():
+        for t in group:
+            t["sameSessionTabs"] = ([{"surfaceRef": o.get("surfaceRef"), "pid": o.get("pid")}
+                                     for o in group if o is not t] or None)
     tabs.sort(key=lambda t: (STATUS_ORDER.get(t["status"], 9), -(t["lastActivity"] or 0)))
 
     counts = {}
