@@ -71,7 +71,7 @@ async def _no_store_api(request, call_next):
 # 브라우저가 옛 파일을 계속 쓴다(WKWebView 는 Cache-Control: no-store 로도 캐시본을
 # 쓴다 — 실측 2026-08-24). 예전에는 이 목록이 _asset_version() 과 _page() 에 각각
 # 하드코딩돼 있어 "한 곳만 고치고 끝내는" 사고가 나기 쉬웠다.
-ASSETS = ("theme.js", "tokens.css", "nav.css", "board.css", "icons.js", "nav.js", "edit.js",
+ASSETS = ("index.html", "theme.js", "tokens.css", "nav.css", "board.css", "icons.js", "nav.js", "edit.js",
           "cmux-mark.png", "favicon.png")
 
 

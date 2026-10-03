@@ -1472,6 +1472,20 @@ def collect(use_cache=True):
         for t in group:
             t["sameSessionTabs"] = ([{"surfaceRef": o.get("surfaceRef"), "pid": o.get("pid")}
                                      for o in group if o is not t] or None)
+        # ★ 상태도 세션 단위로 맞춘다 — 사람에겐 한 대화다(신고 2026-10-04: 같은 세션인데 ⚡/⊙ 로 갈렸다).
+        #   가장 활발한 쪽(STATUS_ORDER 가 작은 쪽)으로 올린다. 단 **막힘(권한·질문)은 옮기지 않는다** —
+        #   답은 그 화면이 뜬 탭에서만 할 수 있고, 두 탭에 다 띄우면 막힘 수도 두 번 센다.
+        if len(group) > 1:
+            live = [t for t in group if STATUS_ORDER.get(t["status"], 9) != 0]
+            lead = min(live, key=lambda t: STATUS_ORDER.get(t["status"], 9), default=None)
+            for t in live:
+                if lead is not None and t is not lead and \
+                        STATUS_ORDER.get(t["status"], 9) > STATUS_ORDER.get(lead["status"], 9):
+                    t["ownStatus"] = t["status"]
+                    t["status"] = lead["status"]
+                    t["statusLabel"] = STATUS_LABEL[lead["status"]]
+                    ref = (lead.get("surfaceRef") or "").replace("surface:", "tab:")
+                    t["statusSource"] = f"같은 세션 {ref} 기준 · {lead.get('statusSource') or ''}"
     tabs.sort(key=lambda t: (STATUS_ORDER.get(t["status"], 9), -(t["lastActivity"] or 0)))
 
     counts = {}
