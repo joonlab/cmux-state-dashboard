@@ -1011,6 +1011,11 @@ def transcript_info(sid, tail_bytes=None, _max_tail=2_000_000):
                         continue
                     if o.get("isSidechain"):      # 서브에이전트 발화는 '내 대화'가 아니다
                         continue
+                    # ★ 압축 요약은 type=user 로 기록되지만 사람의 프롬프트가 아니다(10-11 신고: 유휴 중 자동 압축
+                    #   «Compacted while idle» 뒤 기록 끝이 요약 user 줄 → «프롬프트 뒤 응답 없음»으로 15분간 작업 중 스피너).
+                    #   건너뛰면 압축 앞의 진짜 턴 상태(대개 end_turn)가 판정에 쓰인다. 작업 중 압축이면 뒤에 응답이 이어 붙는다.
+                    if o.get("isCompactSummary") or o.get("subtype") == "compact_boundary":
+                        continue
                     if info["cwd"] is None and o.get("cwd"):
                         info["cwd"] = o["cwd"]
                     ts = _parse_ts(o.get("timestamp"))
