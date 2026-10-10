@@ -955,7 +955,11 @@ def transcript_info(sid, tail_bytes=None, _max_tail=2_000_000):
             #   순서는 그대로 두되(진짜로 뭔가 하긴 했으므로) 화면에서 구분할 수 있게 한다.
             "lastHumanAt": None,     # 사람이 시킨 마지막 활동
             "wokenBySystem": False,  # 마지막 활동 구간이 시스템 발 인가
-            "wakeKind": None}        # 무엇이 깨웠나(artifact-watch-lifecycle 등)
+            "wakeKind": None,        # 무엇이 깨웠나(artifact-watch-lifecycle 등)
+            # ↓ 가장 최근 assistant 기록의 도구 호출 중 **아직 결과(tool_result)가 없는 것** [{name, at}].
+            #   None = 못 정함, [] = 없음. «답을 기다리는 질문·권한»의 **시효 없는** 증거다(10-10):
+            #   알림은 6시간 뒤 낡은 것으로 버려서, 오래 답 안 한 AskUserQuestion 이 유휴로 떨어졌다.
+            "pendingTools": None}
     if not path:
         return info
     try:
@@ -981,6 +985,7 @@ def transcript_info(sid, tail_bytes=None, _max_tail=2_000_000):
     #    받아 rc=-2 로 실패하고, 화면은 "탭 0개 + 경고 벽"이 됐다.
     # → 청크 하나(256KB)와 걸친 줄만 메모리에 둔다. 다 찾으면 바로 나가므로 대개 첫 청크로 끝난다.
     pending_at = None          # 아직 '사람이 시킨 것'으로 확정되지 않은 발화 시각
+    resolved = set()           # 결과를 받은 tool_use id(pendingTools 판정용)
     scanned = 0
     try:
         with open(path, "rb") as f:
@@ -1011,6 +1016,17 @@ def transcript_info(sid, tail_bytes=None, _max_tail=2_000_000):
                     ts = _parse_ts(o.get("timestamp"))
                     if ts and info["lastEntryAt"] is None:
                         info["lastEntryAt"] = ts
+                    if info["pendingTools"] is None and o.get("type") in ("user", "assistant"):
+                        c = (o.get("message") or {}).get("content")
+                        blocks = c if isinstance(c, list) else []
+                        if o["type"] == "user":
+                            # 뒤에서부터 읽으므로 결과(tool_result)를 먼저 만난다 — 답 받은 호출 id 를 모아 둔다
+                            resolved.update(b.get("tool_use_id") for b in blocks
+                                            if isinstance(b, dict) and b.get("type") == "tool_result")
+                        else:
+                            uses = [b for b in blocks if isinstance(b, dict) and b.get("type") == "tool_use"]
+                            info["pendingTools"] = [{"name": b.get("name"), "at": ts} for b in uses
+                                                    if b.get("id") not in resolved]
                     if o.get("type") in ("user", "assistant"):
                         if info["lastRole"] is None:
                             info["lastRole"] = o["type"]
@@ -1053,7 +1069,7 @@ def transcript_info(sid, tail_bytes=None, _max_tail=2_000_000):
                                 info["lastPromptText"] = cleaned
                                 info["lastPromptAt"] = ts
                     if (info["cwd"] and info["lastRole"] and info["lastPromptText"]
-                            and info["lastMessageAt"] and info["lastHumanAt"]):
+                            and info["lastMessageAt"] and info["lastHumanAt"] and info["pendingTools"] is not None):
                         pos = 0                   # 다 찾았다 — 더 거슬러 올라가지 않는다
                         break
                 del parts, buf
@@ -1089,7 +1105,45 @@ STALE_SEC = 6 * 3600
 RUNNING_MAX_SEC = 15 * 60
 
 
-def decide_status(tab_title, notif, last_activity, now, act_src=None, turn=None, bg=0, wf=None, agents=None):
+_SCREEN_CACHE = {}             # surface ref → (at, kind)
+SCREEN_TTL = 8.0
+
+
+def screen_prompt_kind(ref):
+    """화면에 지금 떠 있는 «사람을 기다리는 프롬프트» — "question" · "permission" · None(없음) · "unread"(못 읽음).
+
+    왜 화면인가(10-10): 대화 기록만으로는 «떠 있는 질문»과 «Esc 로 거절된 질문»을 못 가른다 — 거절해도
+    tool_result 가 **기록되지 않는다**(실측: 자비스 탭, 화면엔 «User declined to answer questions» 인데 기록 끝은
+    결과 없는 AskUserQuestion 호출). 알림도 cmux 가 지울 수 있다. 그래서 «결과 없는 도구 호출»이 있는 탭만 화면으로
+    확정한다(그런 탭은 몇 개 안 된다 + 8초 캐시). 판별 문구는 관제실 앱 screenprompt.py 와 같은 꼬리 줄 규칙.
+    """
+    if not ref:
+        return "unread"
+    hit = _SCREEN_CACHE.get(ref)
+    if hit and time.time() - hit[0] < SCREEN_TTL:
+        return hit[1]
+    try:
+        txt = cmux_client._run(["read-screen", "--surface", ref, "--lines", "60"], timeout=6)
+    except Exception:                                         # noqa: BLE001
+        kind = "unread"
+    else:
+        tail = [ln.strip() for ln in (txt or "").splitlines()[-45:]]
+        kind = None
+        for ln in reversed(tail):
+            if ln.startswith("Enter to select") or ln.startswith("Review your answers") or "Submit answers" in ln:
+                kind = "question"
+                break
+            if ln.startswith("Esc to cancel") or ln.startswith("Do you want to proceed?"):
+                kind = "permission"
+                break
+    _SCREEN_CACHE[ref] = (time.time(), kind)
+    if len(_SCREEN_CACHE) > 400:
+        _SCREEN_CACHE.clear()
+    return kind
+
+
+def decide_status(tab_title, notif, last_activity, now, act_src=None, turn=None, bg=0, wf=None, agents=None,
+                  pending=None, screen=None):
     """(status, source). `bg` 는 살아 있는 셸 수, `wf` 는 돌고 있는 워크플로(없으면 None),
     `agents` 는 돌고 있는 백그라운드 서브에이전트 목록(bg_agents_for).
 
@@ -1102,7 +1156,7 @@ def decide_status(tab_title, notif, last_activity, now, act_src=None, turn=None,
       방금 갱신됐다는 것이 여기서 가장 확실한 증거다.
       단 **막힘(0층)은 못 이긴다** — 사람이 답해야 푸는 것이 언제나 먼저다.
     """
-    st, src = _decide_status(tab_title, notif, last_activity, now, act_src, turn)
+    st, src = _decide_status(tab_title, notif, last_activity, now, act_src, turn, pending, screen)
     # 워크플로가 끝나면 도구 결과가 들어와 **본 transcript 가 다시 움직인다.** 그게 에이전트
     # 기록보다 새로우면 이미 끝난 것이다 — 그때까지 WF_LIVE_SEC(150초)를 기다리면 다 끝난
     # 탭이 2분 넘게 '진행 중'으로 남는다.
@@ -1124,15 +1178,36 @@ def decide_status(tab_title, notif, last_activity, now, act_src=None, turn=None,
     return st, src
 
 
-def _decide_status(tab_title, notif, last_activity, now, act_src=None, turn=None):
+def _decide_status(tab_title, notif, last_activity, now, act_src=None, turn=None, pending=None, screen=None):
     """(status, source) — 근거를 함께 돌려준다(조용한 오판 방지).
 
     신호가 둘이다. **탭 제목 마커는 지금 상태**(cmux 가 매 순간 갱신)이고,
     **알림 피드는 지나간 사건의 기록**이다. 그래서 알림은 '아직 유효할 때만' 쓴다.
+    `pending` 은 대화 기록의 «결과 없는 도구 호출»[{name, at}] — 막힘의 시효 없는 증거.
     """
     title = (tab_title or "").strip()
     if title and title[0] in SPINNER_CHARS:
         return "running", "탭 제목 스피너"
+
+    # ★ 답 안 된 질문·권한은 **시간이 지나도 막힘이다**(신고 10-10: AskUserQuestion 이 답을 기다리는데
+    #   메뉴바·웹·폰 어디에도 안 보였다 — 알림이 6시간(STALE_SEC) 지나 낡은 것으로 버려져 «유휴»가 됐다).
+    #   대화 기록에 AskUserQuestion 호출이 있고 결과가 없으면 사람의 답을 기다리는 중이다. 취소(Esc)·답하면
+    #   tool_result 가 생겨 풀린다. 권한은 도구 이름만으론 «도는 중»과 못 가르므로, 그 호출 **뒤에** 온 권한 알림이
+    #   있을 때만 시효 없이 막힘으로 본다.
+    #   «결과 없음»만으론 거절된 질문과 못 가르므로(screen_prompt_kind 머리말) **화면으로 확정**한다.
+    #   화면을 못 읽었을 때만 «그 호출 뒤에 온 알림»으로 물러난다.
+    if pending:
+        first_at = min((p.get("at") or 0) for p in pending)
+        notif_after = bool(notif and first_at and notif["at"] >= first_at - 2)
+        if screen == "question":
+            return "question", "화면(질문 선택지) + 대화 기록(답 없는 도구 호출)"
+        if screen == "permission":
+            return "permission", "화면(권한 요청) + 대화 기록(결과 없는 도구 호출)"
+        if screen == "unread" and notif_after:
+            if notif["kind"] == "question" or any(p.get("name") == "AskUserQuestion" for p in pending):
+                return "question", "대화 기록(답 없는 질문) + 그 뒤 질문 알림(화면 못 읽음)"
+            if notif["kind"] == "permission":
+                return "permission", "대화 기록(결과 없는 도구 호출) + 그 뒤 권한 알림(화면 못 읽음)"
 
     stale_notif = None
     if notif and notif["kind"] in ("permission", "question", "waiting", "completed"):
@@ -1373,8 +1448,12 @@ def collect(use_cache=True):
         renamed = bool(_RENAMED.get(str(p["surfaceId"]).upper()))
         wf = workflow_for(sid, ti.get("transcript"))
         agents = bg_agents_for(sid, ti.get("transcript"))
+        pend = ti.get("pendingTools")
+        # 결과 없는 도구 호출이 있고 스피너가 아닐 때만 화면을 본다(막힘 확정용 — 대부분의 탭은 읽지 않는다)
+        scr = (screen_prompt_kind((loc or {}).get("surfaceRef"))
+               if pend and not ((tab_title or "").strip()[:1] in SPINNER_CHARS) else None)
         status, source = decide_status(tab_title, notif, last_activity, now, act_src, turn,
-                                       bg_map.get(p["pid"], 0), wf, agents)
+                                       bg_map.get(p["pid"], 0), wf, agents, pend, scr)
         # 이어진 세션이면 «지금 살아 있는» 쪽 id 도 함께 싣는다. 상태·활동은 이미 그쪽
         # transcript 로 판정했으므로(transcript_path 가 사슬을 따라간다), 화면이 옛 id 만
         # 보여 주면 resume 도 옛 것을 가리켜 사람을 헷갈리게 한다.
