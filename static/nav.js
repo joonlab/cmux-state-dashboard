@@ -25,6 +25,28 @@ window.NAV = (function(){
   const WEAK_SID = /추정|없음|버림/;
   const urgency = t => (t && t.status in URGENT) ? URGENT[t.status] : 9;
   let timer = null, els = null, lastData = null, query = '';
+  /* 서버 검색 결과 {q, hits:{surfaceId:{snippet, where}}} — 탭 정보만이 아니라 그 세션에서 사람이 한 말 **전부**를 본다
+     (prompt_index.py). 예전엔 lastPromptText(마지막 하나·180자)만 봐서 «프롬프트에 있던 말이 안 걸린다»는 신고(10-10). */
+  let srv = null, srvTimer = null, srvSeq = 0;
+  const normQ = q => (q || '').normalize('NFC').trim().toLowerCase();
+  function askServer(now){
+    clearTimeout(srvTimer);
+    if(!query){ srv = null; return; }
+    srvTimer = setTimeout(async () => {
+      const q = query, seq = ++srvSeq;
+      try{
+        const r = await fetch('/api/search?q=' + encodeURIComponent(q));
+        if(!r.ok) return;
+        const j = await r.json();
+        if(seq !== srvSeq || q !== query) return;           // 그새 검색어가 바뀌었다
+        srv = j.hits ? {q, hits: j.hits} : null;
+        lastHtml = null; render();
+      }catch(e){ /* 서버 검색 실패 — 자기 쪽 거르기로 남는다 */ }
+    }, now ? 0 : 250);
+  }
+  const srvHit = t => (srv && srv.q === query && srv.hits) ? srv.hits[t.surfaceId] : undefined;
+  /* 카드에 보일 프롬프트 줄 — 프롬프트 안에서 걸렸으면 걸린 조각을, 아니면 마지막 프롬프트 */
+  const promptOf = t => { const h = srvHit(t); return (h && h.snippet) ? '🔎 ' + h.snippet : t.lastPromptText; };
 // 토글 상태는 브라우저에 기억시킨다 — 탭을 오갈 때마다 초기화되면 "검색했는데 결과가 줄었다"로 보인다
 let showIdle = localStorage.getItem('navShowIdle') === '1';
 // 보기 모드 — 'window'(창별 컬럼 보드) / 'status'(상태별 목록). 창 배치를 조망하고 싶다는
@@ -366,6 +388,7 @@ let dragGk = null, dragWin = null;
 
   function matches(t){
     if(!query) return true;
+    if(srv && srv.q === query && srv.hits && srv.hits[t.surfaceId]) return true;
     // ⚠️ windowShowing("그 창이 지금 보여주는 워크스페이스")은 **이 탭과 무관한 정보**라
     //    검색 대상에서 뺀다 — 넣으면 같은 창의 무관한 탭이 전부 걸려 결과가 지저분해진다.
     const hay = [t.cleanTitle, t.title, t.workspaceTitle, t.windowLabel, t.tabRef,
@@ -422,8 +445,8 @@ let dragGk = null, dragWin = null;
         hidden +
         (t.paneCount > 1 ? `<span class="tag">분할 ${t.paneCount}</span>` : '')
       : '<span class="tag">위치 불명 — 탭이 닫혔거나 cmux 밖</span>';
-    const prompt = t.lastPromptText
-      ? `<div class="prompt">${esc(t.lastPromptText)}</div>` : '';
+    const pl = promptOf(t);
+    const prompt = pl ? `<div class="prompt">${esc(pl)}</div>` : '';
     const btn = t.located
       ? `<button class="go">이 탭으로 →</button>` : '';
     return `<div class="nav-card ${t.status}${t.isActiveTab?' here':''}${bump(t)}"
@@ -636,7 +659,7 @@ let dragGk = null, dragWin = null;
         ${t.paneCount>1?`<span class="btag">분할 ${t.paneCount}</span>`:''}
       </div>
       <div class="bdetail">
-        ${t.lastPromptText?`<div class="bq">“${esc(t.lastPromptText)}”</div>`:''}
+        ${promptOf(t)?`<div class="bq">“${esc(promptOf(t))}”</div>`:''}
         <div class="bk">${esc(t.statusLabel)} · ${esc(t.statusSource||'')}</div>
         ${t.askText?`<div class="bk ask">${ic('circle-question-mark')}
            <span>${esc(t.askText)}</span></div>`:''}
@@ -680,7 +703,8 @@ let dragGk = null, dragWin = null;
     reapPinOverride(d);
     // 검색·유휴까지만 적용한 것(base)과 좁혀 보기까지 적용한 것(shown)을 나눠 둔다 —
     // 둘의 차이가 곧 "좁혀 보기 때문에 숨은 개수"라, 그 숫자를 칩 옆에 적을 수 있다.
-    const base = d.tabs.filter(t => (showIdle || t.status !== 'idle') && matches(t));
+    // 검색 중엔 유휴도 본다 — 탭 대부분이 유휴라(실측 144개 중 132개) 안 그러면 «검색했는데 안 나온다»가 된다(10-10)
+    const base = d.tabs.filter(t => (query || showIdle || t.status !== 'idle') && matches(t));
     const shown = base.filter(passesFilter);
     let html = '';
     for(const w of (d.warnings||[])) html += `<div class="nav-warn">⚠️ ${esc(w)}</div>`;
@@ -689,8 +713,7 @@ let dragGk = null, dragWin = null;
       html += (winFilter.size || wsFilter.size) && base.length
         ? `<div class="empty">좁혀 보기에 걸린 탭이 없습니다 — 위 칩의 ×로 해제하세요.</div>`
         : query
-        ? `<div class="empty">‘${esc(query)}’와 맞는 탭이 없습니다.${
-            showIdle ? '' : ' (유휴 탭은 “유휴도 보기”를 켜야 보입니다)'}</div>`
+        ? `<div class="empty">‘${esc(query)}’와 맞는 탭이 없습니다.</div>`
         : `<div class="empty">표시할 Claude 탭이 없습니다.${
             d.total ? ` (유휴 ${d.counts.idle||0}개는 “유휴도 보기”로)` : ''}</div>`;
     }
@@ -886,6 +909,7 @@ let dragGk = null, dragWin = null;
       if(!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || r.status);
       lastData = await r.json();
       checkVersion(lastData.assetVersion);
+      if(query) askServer(true);       // 새 프롬프트가 들어왔을 수 있다 — 검색 중이면 서버 판정도 새로
       render();
     }catch(e){
       if(els && els.main && !lastData)
@@ -953,7 +977,7 @@ let dragGk = null, dragWin = null;
       };
     }
     stop();                    // 먼저 정리(stop 이 헤더 고정을 되돌리므로 순서 주의)
-    if(opts.query !== undefined) query = (opts.query || '').trim().toLowerCase();
+    if(opts.query !== undefined){ query = normQ(opts.query); askServer(true); }
     headerUnstick(true);
     refresh(true);
     timer = setInterval(() => { if(!document.hidden) refresh(); }, POLL_MS);
@@ -966,10 +990,11 @@ let dragGk = null, dragWin = null;
   }
 
   function setQuery(q){
-    const next = (q || '').trim().toLowerCase();
+    const next = normQ(q);
     if(next === query) return;
     query = next;
     lastHtml = null;
+    askServer();
     render();
   }
 

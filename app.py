@@ -137,6 +137,19 @@ def api_nav(fresh: bool = False):
         raise HTTPException(status_code=500, detail=f"수집 실패: {e}")
 
 
+@app.get("/api/search")
+def api_search(q: str = ""):
+    """탭 검색 — 탭 정보 + 그 세션에서 사람이 한 말 전부(prompt_index.py). 낱말 AND.
+    hits=None 이면(데모 모드 등) 클라이언트가 자기 쪽 거르기로 돌아간다."""
+    if demo.ENABLED:
+        return {"q": q, "hits": None}
+    import prompt_index
+    try:
+        return {"q": q, "hits": prompt_index.search(nav.collect()["tabs"], q)}
+    except Exception as e:                                    # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"검색 실패: {e}")
+
+
 @app.get("/api/health")
 def health():
     if demo.ENABLED:

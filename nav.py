@@ -804,8 +804,8 @@ _LINE_NOISE = re.compile(r"^\s*(\[스킬 라우터\]|→ 위 후보의|\(스킬 
 _IMG_TAG = re.compile(r"\[Image(?: #\d+)?:?[^\]]*\]")
 
 
-def clean_prompt(txt):
-    """프롬프트 미리보기용 정제. 사람 발화로 보이지 않으면 None."""
+def clean_prompt(txt, limit=180):
+    """프롬프트 미리보기용 정제. 사람 발화로 보이지 않으면 None. limit=None 이면 자르지 않는다(검색 색인용)."""
     if not txt or _SKIP.search(txt):
         return None
     txt = _SYSREM.sub(" ", txt)
@@ -817,7 +817,7 @@ def clean_prompt(txt):
     txt = re.sub(r"\s+", " ", txt).strip()
     if len(txt) < 2:
         return "🖼 (이미지 첨부)" if had_img else None
-    return ("🖼 " if had_img else "") + txt[:180]
+    return ("🖼 " if had_img else "") + (txt if limit is None else txt[:limit])
 
 
 def _raw_transcript_path(sid):
