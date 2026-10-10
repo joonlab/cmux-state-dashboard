@@ -1016,6 +1016,16 @@ def transcript_info(sid, tail_bytes=None, _max_tail=2_000_000):
                     ts = _parse_ts(o.get("timestamp"))
                     if ts and info["lastEntryAt"] is None:
                         info["lastEntryAt"] = ts
+                    # ★ 백그라운드 완료·감시 이벤트·작업 중 보낸 말은 user 줄이 아니라 queued_command **첨부**로 들어와
+                    #   턴을 새로 연다(실측 10-10). 그 뒤 응답이 끝나야 assistant 줄이 붙으므로, 그 사이에 턴 판정이
+                    #   앞의 «턴 끝»을 보면 일하는 세션이 «대기 + 셸/감시 = 뒤에서 진행»으로 보였다(신고 A).
+                    if (info["lastRole"] is None and o.get("type") == "attachment"
+                            and (o.get("attachment") or {}).get("type") == "queued_command"):
+                        info["lastRole"], info["lastStop"] = "user", None
+                        if ts and info["lastMessageAt"] is None:
+                            info["lastMessageAt"] = ts
+                        if info["pendingTools"] is None:
+                            info["pendingTools"] = []
                     if info["pendingTools"] is None and o.get("type") in ("user", "assistant"):
                         c = (o.get("message") or {}).get("content")
                         blocks = c if isinstance(c, list) else []
@@ -1109,6 +1119,19 @@ _SCREEN_CACHE = {}             # surface ref → (at, kind)
 SCREEN_TTL = 8.0
 
 
+_SPIN_LINE = re.compile(r"^\S\s+\S[^\n]*…\s*\(\d+[hms]", re.M)   # «✶ Cooking… (6m 13s · ↓ 17.4k tokens …)»
+
+
+def screen_busy(ref):
+    """화면에 «지금 일하는 중» 줄이 있나 — True · False · None(못 읽음). screen_prompt_kind 와 같은 읽기·캐시를 쓴다."""
+    screen_prompt_kind(ref)
+    hit = _SCREEN_BUSY.get(ref)
+    return hit
+
+
+_SCREEN_BUSY = {}
+
+
 def screen_prompt_kind(ref):
     """화면에 지금 떠 있는 «사람을 기다리는 프롬프트» — "question" · "permission" · None(없음) · "unread"(못 읽음).
 
@@ -1126,8 +1149,12 @@ def screen_prompt_kind(ref):
         txt = cmux_client._run(["read-screen", "--surface", ref, "--lines", "60"], timeout=6)
     except Exception:                                         # noqa: BLE001
         kind = "unread"
+        _SCREEN_BUSY[ref] = None
     else:
-        tail = [ln.strip() for ln in (txt or "").splitlines()[-45:]]
+        lines = (txt or "").splitlines()
+        tail = [ln.strip() for ln in lines[-45:]]
+        # 지금 Claude Code 의 작업 표시는 탭 제목이 아니라 **화면의 스피너 줄**이다(10-10 실측: 제목에 스피너 마커가 안 붙는다)
+        _SCREEN_BUSY[ref] = bool(_SPIN_LINE.search("\n".join(lines[-25:])))
         kind = None
         for ln in reversed(tail):
             if ln.startswith("Enter to select") or ln.startswith("Review your answers") or "Submit answers" in ln:
@@ -1139,11 +1166,12 @@ def screen_prompt_kind(ref):
     _SCREEN_CACHE[ref] = (time.time(), kind)
     if len(_SCREEN_CACHE) > 400:
         _SCREEN_CACHE.clear()
+        _SCREEN_BUSY.clear()
     return kind
 
 
 def decide_status(tab_title, notif, last_activity, now, act_src=None, turn=None, bg=0, wf=None, agents=None,
-                  pending=None, screen=None):
+                  pending=None, screen=None, busy=None):
     """(status, source). `bg` 는 살아 있는 셸 수, `wf` 는 돌고 있는 워크플로(없으면 None),
     `agents` 는 돌고 있는 백그라운드 서브에이전트 목록(bg_agents_for).
 
@@ -1157,6 +1185,9 @@ def decide_status(tab_title, notif, last_activity, now, act_src=None, turn=None,
       단 **막힘(0층)은 못 이긴다** — 사람이 답해야 푸는 것이 언제나 먼저다.
     """
     st, src = _decide_status(tab_title, notif, last_activity, now, act_src, turn, pending, screen)
+    # ★ 화면의 스피너 줄은 «지금 일한다»의 가장 확실한 증거다 — 대기·유휴 판정을 이긴다(막힘은 못 이긴다)
+    if busy and st in ("waiting", "idle", "unknown"):
+        st, src = "running", f"화면 스피너(판정 근거였던 «{src}»보다 우선)"
     # 워크플로가 끝나면 도구 결과가 들어와 **본 transcript 가 다시 움직인다.** 그게 에이전트
     # 기록보다 새로우면 이미 끝난 것이다 — 그때까지 WF_LIVE_SEC(150초)를 기다리면 다 끝난
     # 탭이 2분 넘게 '진행 중'으로 남는다.
@@ -1166,6 +1197,10 @@ def decide_status(tab_title, notif, last_activity, now, act_src=None, turn=None,
     #    (<task-id>)으로 이미 걸러 낸다.
     if wf and not wf.get("async") and last_activity and last_activity > (wf.get("lastActivity") or 0):
         wf = None
+    # ★ 비동기 워크플로가 도는 동안 메인도 일하고 있으면 «작업 중»이다(신고 B, 10-10). 워크플로 정보는 카드의
+    #   전용 줄이 보여 준다. 동기 워크플로는 메인이 그 결과만 기다리므로 아래처럼 «워크플로 진행».
+    if wf and wf.get("async") and st == "running":
+        return "running", f"{src} + 비동기 워크플로 진행"
     if wf and STATUS_ORDER.get(st, 9) != 0:
         # 근거만 적는다 — 이름·단계·에이전트 수는 카드의 전용 줄(.bk.wf)이 보여 준다.
         # 둘 다 적으면 같은 말이 두 번 나온다(2026-09-25 화면 확인).
@@ -1454,6 +1489,12 @@ def collect(use_cache=True):
                if pend and not ((tab_title or "").strip()[:1] in SPINNER_CHARS) else None)
         status, source = decide_status(tab_title, notif, last_activity, now, act_src, turn,
                                        bg_map.get(p["pid"], 0), wf, agents, pend, scr)
+        # 대기·뒤에서·워크플로로 나왔고 최근(2시간) 움직인 탭만 화면 스피너를 확인한다(대부분의 탭은 안 읽는다)
+        recent = (ti.get("lastEntryAt") or last_activity or 0) > now - 7200
+        if status in ("waiting", "background", "workflow") and recent and (loc or {}).get("surfaceRef"):
+            if screen_busy(loc["surfaceRef"]):
+                status, source = decide_status(tab_title, notif, last_activity, now, act_src, turn,
+                                               bg_map.get(p["pid"], 0), wf, agents, pend, scr, busy=True)
         # 이어진 세션이면 «지금 살아 있는» 쪽 id 도 함께 싣는다. 상태·활동은 이미 그쪽
         # transcript 로 판정했으므로(transcript_path 가 사슬을 따라간다), 화면이 옛 id 만
         # 보여 주면 resume 도 옛 것을 가리켜 사람을 헷갈리게 한다.
