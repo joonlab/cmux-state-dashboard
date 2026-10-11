@@ -143,6 +143,10 @@ def background_shells():
 #     <프로젝트>/<세션>/subagents/workflows/wf_<런id>/agent-*.jsonl   ← 돌 때 계속 append
 #     .../journal.jsonl   ← {"type":"started"|"result", label, phase} 이벤트
 WF_LIVE_SEC = 150          # agent jsonl 이 이 안에 갱신됐으면 '돌고 있다'
+# 에이전트가 **아직 결과를 안 낸** 워크플로(journal: started > result)는 기록이 조용해도 이만큼 기다린다.
+# 실측 10-12: 마지막 에이전트가 69KB StructuredOutput 을 만드는 **10분 동안 한 줄도 안 썼다**(22:32:26 → 22:42:38)
+# → 150초 규칙에 걸려 14/15 진행 중인 워크플로가 대시보드·메뉴바에서 사라지고 탭은 «입력 대기»로 보였다.
+WF_STALL_SEC = 30 * 60
 _WF_CACHE = {"val": {}}        # 세션id → (조회시각, 결과)
 _WF_NAME_CACHE = {}        # 런id → 워크플로 이름(스크립트 파일명에서). 안 바뀌므로 영구 캐시
 _WF_TASK_CACHE = {}        # 런id → 비동기 task id(없으면 None = 동기 실행). 안 바뀌므로 영구 캐시
@@ -237,11 +241,14 @@ def workflow_for(sid, tpath, use_cache=True):
             fresh = max(os.path.getmtime(a) for a in agents)
         except OSError:
             continue
-        if now - fresh > WF_LIVE_SEC:      # 끝났거나 멈춘 것 — '지금 돌고 있는' 것만 센다
-            continue
         run_id = os.path.basename(wdir)
         jpath = os.path.join(wdir, "journal.jsonl")
+        # 끝났거나 멈춘 것은 뺀다 — 단 결과를 아직 안 낸 에이전트가 있으면 긴 생성 중일 수 있어 WF_STALL_SEC 까지 기다린다
+        if now - fresh > WF_STALL_SEC:
+            continue
         running, total, phase = _wf_journal(jpath)
+        if now - fresh > WF_LIVE_SEC and not running:
+            continue
         # 시작 시각: **meta.json 의 mtime**. 에이전트 jsonl 의 ctime 은 쓰기마다 바뀌어
         # "방금 시작한 것"처럼 보인다(실측: 14분 된 워크플로가 165초로 나왔다).
         # meta.json 은 스폰 때 한 번 쓰이고 그대로다.
