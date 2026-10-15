@@ -785,6 +785,14 @@ def _entry_text(o):
     return c if isinstance(c, str) else ""
 
 
+def _is_interrupt(o):
+    """Esc 중단 표시 줄인가 — 글 블록(목록) 또는 문자열 본문의 «[Request interrupted by user…]»."""
+    c = (o.get("message") or {}).get("content")
+    if isinstance(c, list):
+        c = " ".join(b.get("text") or "" for b in c if isinstance(b, dict) and b.get("type") == "text")
+    return isinstance(c, str) and c.lstrip().startswith(_INTERRUPTED)
+
+
 def _is_system_wake(o):
     """사람이 아니라 시스템이 밀어 넣은 입력인가(그래서 claude 가 깨어난 것인가)."""
     if o.get("type") != "user":
@@ -1053,6 +1061,10 @@ def transcript_info(sid, tail_bytes=None, _max_tail=2_000_000):
                         if info["lastRole"] is None:
                             info["lastRole"] = o["type"]
                             info["lastStop"] = (o.get("message") or {}).get("stop_reason")
+                            # Esc 중단 표시(«[Request interrupted by user…]»)는 user 줄이지만 턴이 **끝난** 것이다(10-15 신고:
+                            # 중단한 탭이 «프롬프트 뒤 응답 없음»으로 15분간 작업 중 스피너)
+                            if o["type"] == "user" and _is_interrupt(o):
+                                info["lastRole"], info["lastStop"] = "assistant", "interrupted"
                         if ts and info["lastMessageAt"] is None:
                             info["lastMessageAt"] = ts
                         # '시스템이 깨운 구간'은 건너뛴다. 그 안의 발화는 사람이 시킨 게
@@ -1131,6 +1143,7 @@ _SCREEN_CACHE = {}             # surface ref → (at, kind)
 SCREEN_TTL = 8.0
 
 
+_INTERRUPTED = "[Request interrupted by user"
 _SPIN_LINE = re.compile(r"^\S\s+\S[^\n]*…\s*\(\d+[hms]", re.M)   # «✶ Cooking… (6m 13s · ↓ 17.4k tokens …)»
 
 
