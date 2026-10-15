@@ -7,6 +7,8 @@
       파일이 줄었거나 inode 가 바뀌면 처음부터. 첫 읽기는 8MB 씩 끊어 읽는다(큰 세션에서 메모리 폭주 방지).
 사람 발화 판정은 nav 의 것을 그대로 쓴다(_is_human_prompt · _queued_human · clean_prompt) — 카드와 같은 기준.
 검색 규칙: 공백으로 나눈 낱말을 **모두** 포함(AND), 대소문자 무시, 한글은 NFC 로 맞춘다.
++ Claude 답(본 세션 assistant 의 글 블록)도 넣는다(10-15 신고: «D-U-N-S» 는 Claude 답에만 있어 안 걸렸다).
+  도구 입력·결과·생각(thinking)·서브에이전트 기록은 넣지 않는다 — 폰 «대화» 화면에 보이는 말과 같은 범위.
 한계: 이어진 세션(continued-in)은 «세션 id 파일 + 지금 쓰는 파일» 둘만 본다(사슬 중간 파일은 안 본다).
 """
 import json
@@ -33,6 +35,15 @@ def _human_text(o):
     if nav._is_human_prompt(o):
         return nav._entry_text(o)
     return None
+
+
+def _claude_text(o):
+    if o.get("type") != "assistant" or o.get("isSidechain"):
+        return None
+    c = (o.get("message") or {}).get("content")
+    if not isinstance(c, list):
+        return None
+    return "\n".join(b.get("text") or "" for b in c if isinstance(b, dict) and b.get("type") == "text").strip() or None
 
 
 def prompts_of(path):
@@ -62,14 +73,15 @@ def prompts_of(path):
                         rest = buf[cut + 1:]
                         c["off"] += cut + 1
                         for ln in buf[:cut].splitlines():
-                            if b'"promptSource"' not in ln and b"queued_command" not in ln:
+                            if (b'"promptSource"' not in ln and b"queued_command" not in ln
+                                    and not (b'"assistant"' in ln and b'"type":"text"' in ln)):
                                 continue
                             try:
                                 o = json.loads(ln)
                             except ValueError:
                                 continue
                             t = _human_text(o)
-                            raw = nav.clean_prompt(t, limit=None) if t else None
+                            raw = nav.clean_prompt(t, limit=None) if t else _claude_text(o)
                             if raw:
                                 raw = unicodedata.normalize("NFC", raw[:PROMPT_MAX])
                                 c["prompts"].append((raw.lower(), raw))
