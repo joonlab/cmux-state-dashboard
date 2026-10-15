@@ -1501,6 +1501,14 @@ def collect(use_cache=True):
                if pend and not ((tab_title or "").strip()[:1] in SPINNER_CHARS) else None)
         status, source = decide_status(tab_title, notif, last_activity, now, act_src, turn,
                                        bg_map.get(p["pid"], 0), wf, agents, pend, scr)
+        # ★ 알림만 근거인 막힘은 화면으로 확인한다(10-15 신고: 워크플로를 기다리며 턴을 끝낸 세션에 «Bash needs
+        #   approval» 알림이 왔다 → 처리된 뒤에도 본 기록이 안 움직여 «답했다» 근거가 없어 자물쇠로 남았다).
+        #   화면을 읽었는데 권한·질문 창이 없으면 그 알림은 지난 일이다. 못 읽으면(unread) 알림을 그대로 믿는다.
+        if status in ("permission", "question") and source.startswith("cmux 알림") and (loc or {}).get("surfaceRef"):
+            if screen_prompt_kind(loc["surfaceRef"]) is None:
+                status, source = decide_status(tab_title, None, last_activity, now, act_src, turn,
+                                               bg_map.get(p["pid"], 0), wf, agents, pend, scr)
+                source += f" (알림 «{(notif or {}).get('body') or notif.get('kind')}»은 화면에 없어 지난 일로 봄)"
         # 대기·뒤에서·워크플로로 나왔고 최근(2시간) 움직인 탭만 화면 스피너를 확인한다(대부분의 탭은 안 읽는다)
         recent = (ti.get("lastEntryAt") or last_activity or 0) > now - 7200
         if status in ("waiting", "background", "workflow") and recent and (loc or {}).get("surfaceRef"):
