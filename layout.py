@@ -15,6 +15,28 @@ import claude_index
 _UUID = re.compile(
     r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", re.I
 )
+_RESUME_SID = re.compile(
+    r"--(?:resume|session-id)[\s'\"\\=]+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", re.I
+)
+
+
+def resume_sid(cmd, binding=None, agent=None):
+    """resume 바인딩 → 세션 UUID. checkpointId → agent.sessionId → `--resume <uuid>` → 마지막 UUID 순.
+
+    ⚠️ 명령의 **첫** UUID를 쓰면 안 된다: 명령은 `cd -- '<cwd>'` 로 시작하고, cwd 가 다른 세션의
+    scratchpad(/private/tmp/claude-501/<proj>/<다른 sid>/scratchpad)면 그 sid 가 먼저 잡힌다
+    (2026-10-11·13·20 'CMR 알림 테스트' 탭이 d35a16bf 로 오판되고 실제 2dab8ec4 가 복원에서 빠짐).
+    """
+    for v in ((binding or {}).get("checkpointId"), (agent or {}).get("sessionId")):
+        if isinstance(v, str) and _UUID.fullmatch(v):
+            return v.lower()
+    if not cmd:
+        return None
+    m = _RESUME_SID.search(cmd)
+    if m:
+        return m.group(1).lower()
+    ids = _UUID.findall(cmd)
+    return ids[-1].lower() if ids else None
 
 
 def _panel_info(p):
@@ -29,12 +51,13 @@ def _panel_info(p):
     if typ == "terminal":
         t = p.get("terminal") or {}
         info["cwd"] = t.get("workingDirectory") or p.get("directory")
-        cmd = (t.get("resumeBinding") or {}).get("command")
+        rb = t.get("resumeBinding") or {}
+        cmd = rb.get("command")
         if cmd:
             info["resumeCommand"] = cmd
-            m = _UUID.search(cmd)
-            if m:
-                info["sessionId"] = m.group(1).lower()
+            sid = resume_sid(cmd, rb, t.get("agent"))
+            if sid:
+                info["sessionId"] = sid
     elif typ == "browser":
         b = p.get("browser") or {}
         info["url"] = b.get("urlString") or None

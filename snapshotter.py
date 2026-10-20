@@ -56,10 +56,11 @@ def _native_rows(native):
         return rows
 
     def find_cmd(node):
+        """resume 명령을 품은 dict(=resumeBinding)를 찾는다 — checkpointId 까지 쓰려고 dict 째 돌려준다."""
         if isinstance(node, dict):
             c = node.get("command")
             if isinstance(c, str) and "resume" in c and _UUID.search(c):
-                return c
+                return node
             for v in node.values():
                 r = find_cmd(v)
                 if r:
@@ -76,9 +77,9 @@ def _native_rows(native):
             if isinstance(node.get("workspaces"), list):
                 for ws in node["workspaces"]:
                     title = ws.get("name") or ws.get("customTitle") or ws.get("title")
-                    cmd = find_cmd(ws)
-                    m = _UUID.search(cmd) if cmd else None
-                    sid = m.group(1) if m else None
+                    rb = find_cmd(ws)
+                    cmd = rb["command"] if rb else None
+                    sid = layout.resume_sid(cmd, rb)
                     cwd = None
                     if cmd:
                         m = _CD.search(cmd)
@@ -473,6 +474,17 @@ def _prune_if_due():
         return None
 
 
+# 캡처가 이 시간 넘게 연속 실패하면 프로세스를 끝내 pm2 가 새로 띄우게 한다.
+# 2026-10-17 21:08 `sqlite3.connect` 가 `authorization denied`(~/Desktop TCC 일시 거부)로 실패 →
+# 예외가 capture() 밖으로 새어 snap-poll·snap-debounce 스레드가 둘 다 죽었고, 웹 서버만 산 채로
+# 10-20 08:55 재부팅까지 2.5일간 스냅샷 0건. 재시작한 새 프로세스는 바로 정상 기록했다.
+CAPTURE_FAIL_EXIT_SEC = 15 * 60
+
+
+def _ts():
+    return dt.datetime.now().strftime("%m-%d %H:%M:%S")
+
+
 class Snapshotter:
     def __init__(self):
         self._lock = threading.Lock()
@@ -481,6 +493,9 @@ class Snapshotter:
         self._pending_due = 0.0
         self._stop = threading.Event()
         self._last_milestone_day = None
+        self.last_ok_at = None          # 마지막 캡처 성공 시각(health 노출용)
+        self.last_error = None
+        self._fail_since = None
 
     def build_live(self, use_cache=True):
         now = time.time()
@@ -498,6 +513,25 @@ class Snapshotter:
         return norm
 
     def capture(self, reason="poll"):
+        """예외를 밖으로 내보내지 않는다 — 루프 스레드가 죽으면 스냅샷이 조용히 멈춘다(10-17 사고)."""
+        try:
+            r = self._capture(reason)
+        except Exception as e:                                # noqa: BLE001
+            r = {"ok": False, "error": f"{type(e).__name__}: {e}", "reason": reason}
+        now = time.time()
+        if r.get("ok"):
+            self.last_ok_at, self.last_error, self._fail_since = now, None, None
+            return r
+        self.last_error = r["error"]
+        self._fail_since = self._fail_since or now
+        down = now - self._fail_since
+        print(f"[snapshotter {_ts()}] 캡처 실패({reason}, {down/60:.0f}분째): {r['error']}", flush=True)
+        if down > CAPTURE_FAIL_EXIT_SEC:
+            print(f"[snapshotter {_ts()}] {CAPTURE_FAIL_EXIT_SEC//60}분 연속 실패 — pm2 재시작을 위해 종료", flush=True)
+            os._exit(3)
+        return r
+
+    def _capture(self, reason):
         with self._lock:
             try:
                 norm = self.build_live(use_cache=False)
@@ -540,6 +574,14 @@ class Snapshotter:
     def _poll_loop(self):
         while not self._stop.is_set():
             self.capture(reason="poll")
+            # cmux 가 재시작·설정 저장 때 cmux.json 의 socketPassword 를 지운다. health 폴링에도
+            # 자가복구가 있지만 화면을 아무도 안 열면 안 돈다(10-20: 10:49 재시작 후 유실된 채 방치).
+            try:
+                healed, _msg = cmux_client.self_heal_password()
+                if healed:
+                    print(f"[snapshotter {_ts()}] socketPassword 자가복구", flush=True)
+            except Exception:                                 # noqa: BLE001
+                pass
             self._stop.wait(POLL_INTERVAL)
 
     def _debounce_loop(self):

@@ -173,6 +173,8 @@ def health():
         "latestSnapshotId": latest["id"] if latest else None,
         "latestSnapshotAt": latest["last_ts"] if latest else None,
         "latestSessions": latest["n_sessions"] if latest else None,
+        "lastCaptureOkAt": snap.last_ok_at,   # 스냅샷 루프가 살아 있는지(이 값이 멈추면 기록도 멈춘 것)
+        "lastCaptureError": snap.last_error,
         "assetVersion": _asset_version(),
     }
 
@@ -258,7 +260,8 @@ def recovery(snapshotId: int | None = None):
         latest = db.get_latest()
         if not latest:
             raise HTTPException(status_code=404, detail="스냅샷 없음")
-        norm, snap_id, last_ts = json.loads(latest["normalized_json"]), latest["id"], latest["last_ts"]
+        # 저장 BLOB 은 zlib 압축본이라 json.loads 로 바로 읽으면 UnicodeDecodeError(500) — snapshotId 경로와 같이 디코드
+        norm, snap_id, last_ts = db.decode_normalized(latest["normalized_json"]), latest["id"], latest["last_ts"]
     # claude live = '실행중'(구조가 있어도 안 돌면 복원 대상) / browser live = '열린 URL'
     running, live_urls, tmap = _live_index()
     restored = db.restored_set()
