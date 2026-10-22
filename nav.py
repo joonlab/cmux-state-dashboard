@@ -447,8 +447,12 @@ def claude_processes(use_cache=True):
     # 부모가 로그인 셸인 것 = 그 탭의 최상위 claude.
     # ⚠️ 반드시 **argv** 로 본다 — 원래 cmd 로 보면 부모 env 의 SHELL=/bin/zsh 에 걸려
     #    거의 전부가 '로그인 셸의 자식'이 된다(그러면 이 필터가 아무것도 안 거른다).
-    shell_re = re.compile(r"(^|/)(-?zsh|-?bash|-?sh|login)(\s|$)")
-    mains = [r for r in rows if shell_re.search(argv_by_pid.get(r["ppid"], ""))]
+    # ★ 그리고 **부모의 실행파일 이름(첫 토큰)만** 본다(10-22 신고). _split_argv 는 값에 공백이 든 env 에서
+    #   일찍 멈추므로 argv 꼬리에 env 가 남을 수 있고, 그러면 `SHELL=/bin/zsh` 가 다시 걸린다. 실측: Claude Code
+    #   데몬의 예비 워커 `claude bg-spare`(부모 `claude bg-pty-host`)가 10-14 에 데몬을 띄운 탭의 CMUX_PANEL_ID 를
+    #   물고 «탭의 최상위 claude» 로 잡혀 «탭을 못 찾아 제외한 claude 1개» 배너가 8일간 떴다.
+    shell_re = re.compile(r"(^|/)(-?zsh|-?bash|-?sh|login)$")
+    mains = [r for r in rows if shell_re.search(argv_by_pid.get(r["ppid"], "").split(" ", 1)[0])]
 
     # ⚠️ CMUX_PANEL_ID 를 **무조건 믿으면 안 된다** (Claude Code 2.1.246, 실측 2026-09-02).
     #
@@ -1522,6 +1526,14 @@ def collect(use_cache=True):
                 status, source = decide_status(tab_title, None, last_activity, now, act_src, turn,
                                                bg_map.get(p["pid"], 0), wf, agents, pend, scr)
                 source += f" (알림 «{(notif or {}).get('body') or notif.get('kind')}»은 화면에 없어 지난 일로 봄)"
+        # ★ 프롬프트를 보냈는데 응답이 시작되기 전에 Esc 로 취소하면 **기록에 아무 표시도 안 남는다**(10-22 신고: 기록 끝이
+        #   사람 프롬프트 그대로, 화면엔 그 글이 입력창으로 돌아와 있음 → 15분간 작업 중 스피너). 30초 넘게 기록이 멈췄고
+        #   화면에 진행 표시(스피너 줄)가 없으면 턴이 끝난 것으로 본다. 화면을 못 읽으면(None) 그대로 둔다.
+        if (status == "running" and source == "대화 기록(프롬프트 뒤 응답 없음)" and now - (last_activity or now) > 30
+                and (loc or {}).get("surfaceRef") and screen_busy(loc["surfaceRef"]) is False):
+            status, source = decide_status(tab_title, notif, last_activity, now, act_src, ("assistant", "interrupted"),
+                                           bg_map.get(p["pid"], 0), wf, agents, pend, scr)
+            source += " (화면에 진행 표시가 없어 취소된 프롬프트로 봄)"
         # 대기·뒤에서·워크플로로 나왔고 최근(2시간) 움직인 탭만 화면 스피너를 확인한다(대부분의 탭은 안 읽는다)
         recent = (ti.get("lastEntryAt") or last_activity or 0) > now - 7200
         if status in ("waiting", "background", "workflow") and recent and (loc or {}).get("surfaceRef"):
