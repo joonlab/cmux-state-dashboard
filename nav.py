@@ -149,7 +149,7 @@ WF_LIVE_SEC = 150          # agent jsonl 이 이 안에 갱신됐으면 '돌고 
 WF_STALL_SEC = 30 * 60
 _WF_CACHE = {"val": {}}        # 세션id → (조회시각, 결과)
 _WF_NAME_CACHE = {}        # 런id → 워크플로 이름(스크립트 파일명에서). 안 바뀌므로 영구 캐시
-_WF_TASK_CACHE = {}        # 런id → 비동기 task id(없으면 None = 동기 실행). 안 바뀌므로 영구 캐시
+_WF_TASK_CACHE = {}        # (transcript, 런id) → (마지막 비동기 task id 또는 None, 읽은 끝 오프셋)
 
 
 def _wf_task_id(tpath, run_id):
@@ -158,21 +158,25 @@ def _wf_task_id(tpath, run_id):
     Workflow 도구는 이제 **뒤에서 돈다** — 도구 결과로 곧바로
     `{"status":"async_launched","taskId":"we1ziymwy","taskType":"local_workflow",…,"runId":"wf_…"}` 가 남고,
     끝나면 본 transcript 에 `<task-id>we1ziymwy</task-id> … <status>completed</status>` 알림이 들어온다.
-    런마다 한 번만 찾는다(띄운 기록은 transcript 앞쪽에 있어 꼬리만 읽으면 못 찾는다).
+    띄운 기록은 transcript 앞쪽에 있어 꼬리만 읽으면 못 찾는다 → 한 번 다 읽고, 그 뒤엔 늘어난 부분만 읽는다.
+    ★ **같은 runId 로 다시 띄우면(resume) 새 taskId 가 붙는다 — 마지막 것이 지금 도는 것이다**(10-23 신고: 새벽에 중단된
+      task 의 «stopped» 알림을 보고 오후에 재개한 같은 런까지 끝난 것으로 봐서 워크플로 표시가 사라졌다).
     """
-    if run_id in _WF_TASK_CACHE:
-        return _WF_TASK_CACHE[run_id]
-    tid = None
+    tid, off = _WF_TASK_CACHE.get((tpath, run_id), (None, 0))
     try:
         with open(tpath, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            if size < off:
+                tid, off = None, 0                   # 파일이 줄었다(교체) — 처음부터
+            f.seek(max(0, off - 1024))               # 경계에 걸친 줄을 놓치지 않게 조금 겹쳐 읽는다
             data = f.read()
         for m in re.finditer(rb'"status":"async_launched","taskId":"([^"]+)","taskType":"local_workflow"', data):
             if f'"runId":"{run_id}"'.encode() in data[m.end():m.end() + 600]:
-                tid = m.group(1).decode()
-                break
+                tid = m.group(1).decode()            # 끝까지 돈다 — 마지막 launch 가 이긴다
     except OSError:
-        return None                                  # 못 읽었으면 캐시하지 않는다 — 다음에 다시
-    _WF_TASK_CACHE[run_id] = tid
+        return tid                                   # 못 읽었으면 아는 만큼만
+    _WF_TASK_CACHE[(tpath, run_id)] = (tid, size)
     return tid
 
 
@@ -197,7 +201,19 @@ def _wf_name(sid, run_id):
 
 
 def _wf_journal(path):
-    """journal.jsonl → (돌고 있는 에이전트 라벨들, 전체 시작 수, 마지막 단계)."""
+    """journal.jsonl → (돌고 있는 에이전트 라벨들, 전체 시작 수, 마지막 단계).
+
+    중단된 실행에서 시작만 하고 결과를 못 낸 에이전트는 재개 뒤에도 journal 에 «started» 로 남는다(실측 10-23 verify
+    a838…: 03:56 에 멈춤 → 14:33 재개한 verify 와 함께 «2개 진행 중»). 기록이 WF_STALL_SEC 넘게 안 움직인 것은 돌고 있는 것에서 뺀다.
+    """
+    wdir = os.path.dirname(path)
+    now = time.time()
+
+    def alive(aid):
+        try:
+            return now - os.path.getmtime(os.path.join(wdir, f"agent-{aid}.jsonl")) <= WF_STALL_SEC
+        except OSError:
+            return True                              # 파일이 아직 없으면 막 띄운 것
     started, done, phase = {}, set(), None
     try:
         with open(path, "rb") as f:
@@ -214,7 +230,7 @@ def _wf_journal(path):
                     done.add(aid)
     except OSError:
         return [], 0, None
-    return [lb for aid, lb in started.items() if aid not in done], len(started), phase
+    return [lb for aid, lb in started.items() if aid not in done and alive(aid)], len(started), phase
 
 
 def workflow_for(sid, tpath, use_cache=True):
