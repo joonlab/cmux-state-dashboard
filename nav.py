@@ -1201,8 +1201,13 @@ def screen_prompt_kind(ref):
         # 지금 Claude Code 의 작업 표시는 탭 제목이 아니라 **화면의 스피너 줄**이다(10-10 실측: 제목에 스피너 마커가 안 붙는다)
         _SCREEN_BUSY[ref] = bool(_SPIN_LINE.search("\n".join(lines[-25:])))
         kind = None
-        for ln in reversed(tail):
+        for j in range(len(tail) - 1, -1, -1):
+            ln = tail[j]
             if ln.startswith("Enter to select") or ln.startswith("Review your answers") or "Submit answers" in ln:
+                kind = "question"
+                break
+            # 좁은 창에선 질문 안내 줄이 접혀 마지막 줄이 «Esc to cancel»로 시작한다(10-24: 질문이 «권한 대기»로 보였다)
+            if ln.startswith("Esc to cancel") and j > 0 and tail[j - 1].startswith("Enter to select"):
                 kind = "question"
                 break
             if ln.startswith("Esc to cancel") or ln.startswith("Do you want to proceed?"):
