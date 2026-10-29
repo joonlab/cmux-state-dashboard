@@ -1588,7 +1588,9 @@ def collect(use_cache=True):
         # ★ 프롬프트를 보냈는데 응답이 시작되기 전에 Esc 로 취소하면 **기록에 아무 표시도 안 남는다**(10-22 신고: 기록 끝이
         #   사람 프롬프트 그대로, 화면엔 그 글이 입력창으로 돌아와 있음 → 15분간 작업 중 스피너). 30초 넘게 기록이 멈췄고
         #   화면에 진행 표시(스피너 줄)가 없으면 턴이 끝난 것으로 본다. 화면을 못 읽으면(None) 그대로 둔다.
-        if (status == "running" and source == "대화 기록(프롬프트 뒤 응답 없음)" and now - (last_activity or now) > 30
+        #   ⚠️ 비동기 워크플로가 돌면 근거 끝에 « + 비동기 워크플로 진행»이 붙는다 — 같다(==)로 비교하면 이 규칙을 비켜 가
+        #   워크플로를 기다리던 탭이 «작업 중»으로 보였다(10-29 신고). 그래서 앞부분으로 비교한다.
+        if (status == "running" and source.startswith("대화 기록(프롬프트 뒤 응답 없음)") and now - (last_activity or now) > 30
                 and (loc or {}).get("surfaceRef") and screen_busy(loc["surfaceRef"]) is False):
             status, source = decide_status(tab_title, notif, last_activity, now, act_src, ("assistant", "interrupted"),
                                            bg_map.get(p["pid"], 0), wf, agents, pend, scr)
