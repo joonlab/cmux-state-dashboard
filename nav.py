@@ -278,8 +278,13 @@ def workflow_for(sid, tpath, use_cache=True):
             started_at = None
         # 비동기 워크플로면 완료 알림으로 끝을 가린다(에이전트 기록이 150초 식을 때까지 기다리지 않는다)
         task_id = _wf_task_id(tpath, run_id)
-        if task_id and f"<task-id>{task_id}</task-id>".encode() in _tail_bytes(tpath, 256 * 1024):
-            continue
+        # ★ Claude 가 TaskStop 으로 멈춘 것도 끝이다(10-29 신고: 중단한 워크플로가 30분간 «워크플로 진행»으로 남았다).
+        #   그 경로엔 `<task-id>` 알림이 오지 않고 도구 결과 «Successfully stopped task: <id>» 만 남는다. 저널에도 종료 줄이 없다.
+        if task_id:
+            tail = _tail_bytes(tpath, 1024 * 1024)
+            if (f"<task-id>{task_id}</task-id>".encode() in tail
+                    or f"Successfully stopped task: {task_id}".encode() in tail):
+                continue
         cur = {"runId": run_id, "name": _wf_name(live, run_id), "phase": phase, "async": bool(task_id),
                "agentsRunning": len(running), "agentsTotal": total,
                "labels": running[:6], "startedAt": started_at, "lastActivity": fresh}
