@@ -227,6 +227,7 @@ _title_miss = set()        # 이번 인덱스 세대에서 매칭 실패한 제�
 _title_index_ts = 0.0
 _TITLE_TTL = 60            # 초
 _TITLE_MAX_AGE_DAYS = 45   # 이보다 오래 방치된 세션은 인덱싱하지 않음
+_TITLE_TAIL = 512 * 1024   # 앞부분에 제목이 없을 때 볼 꼬리 크기(포크 세션)
 _AI_TITLE_RE = re.compile(rb'"aiTitle"\s*:\s*"((?:[^"\\]|\\.)*)"')
 # cmux 가 터미널 제목 앞에 붙이는 상태 표식(✳ = 유휴, ◐ 등 = 작업 중 스피너 — nav.SPINNER_CHARS) + 유사 기호
 # ★ 스피너가 빠져 있어 **작업 중인 동안만** 제목→세션을 못 찾았다(폰 대화 화면 409, 2026-09-25 실측)
@@ -266,6 +267,15 @@ def _refresh_title_index(force=False):
                     if m:
                         title = m.group(1)
                         break
+                # ★ 포크 세션은 부모 대화를 통째로 복사한 **뒤에** 자기 제목(…⑂)을 쓴다(10-27 신고: 노트북
+                #   c33db783 은 1899번째 줄이 첫 aiTitle). 앞부분만 보면 색인에 없어 탭 제목 교정이 안 걸리고
+                #   탭이 원래 세션으로 남는다 → 앞에서 못 찾으면 꼬리에서 **마지막** 제목을 찾는다.
+                if not title:
+                    size = os.fstat(f.fileno()).st_size
+                    f.seek(max(0, size - _TITLE_TAIL))
+                    hits = _AI_TITLE_RE.findall(f.read())
+                    if hits:
+                        title = hits[-1]
         except OSError:
             continue
         if not title:

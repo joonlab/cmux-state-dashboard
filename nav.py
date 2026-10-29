@@ -407,6 +407,13 @@ def _split_argv(cmd):
     return " ".join(toks[:i])
 
 
+def _sid_from_prefix(prefix):
+    """`claude attach 5a23738d` 의 앞자리 → 전체 세션 UUID. 하나로 정해질 때만 돌려준다."""
+    hits = {os.path.basename(p)[:-6].lower()
+            for p in glob.glob(os.path.join(CLAUDE_PROJECTS, "*", f"{prefix.lower()}*.jsonl"))}
+    return hits.pop() if len(hits) == 1 else None
+
+
 def claude_processes(use_cache=True):
     """탭에서 돌고 있는 claude 목록. [{pid, sessionId, surfaceId}], 에러 문자열.
 
@@ -450,15 +457,22 @@ def claude_processes(use_cache=True):
         if os.path.basename(argv0) != "claude":
             continue
         panel = re.search(r"CMUX_PANEL_ID=([0-9A-Fa-f-]{36})", cmd)   # 이건 env 라 cmd 에서 찾는다
-        if not panel:                    # cmux 탭에서 돌고 있는 것만 대상
+        # ★ 데몬 세션에 붙은 클라이언트 `claude attach <sid 앞 8자리>` 도 탭의 claude 다(10-27 신고).
+        #   포크한 세션을 새 탭에 띄우면 이 형태로 뜨는데, 그 탭은 cmux 환경변수 **없이**
+        #   (`login -flp … exec -l /bin/zsh`) 열려 CMUX_PANEL_ID 가 없다 → 예전엔 여기서 통째로 빠져
+        #   관제실에 안 보였다. 패널은 collect() 가 탭 제목으로 되찾는다.
+        att = re.search(r"(?:^|\s)attach\s+([0-9a-fA-F-]{6,36})(?:\s|$)", argv)
+        if not panel and not att:        # cmux 탭에서 돌고 있는 것만 대상
             continue
         # ⚠️ 짧은 `-r <id>` 도 읽는다. 사람이 손으로 이어가면 대개 이 형태다. 예전엔 긴 형태만 읽어서
         #    `claude -r a2492d93…` 탭이 세션을 못 찾았고, 대화 기록 없이 낡은 질문 알림 하나로
         #    «질문 대기 🔒»가 됐다(실측 2026-10-04 tab:579 — 실제로는 턴 끝 + 셸 1개).
         sid = re.search(r"(?:^|\s)(?:--session-id|--resume|-r)(?:\s+|=)([0-9a-fA-F-]{36})", argv)
+        sid = sid.group(1).lower() if sid else (_sid_from_prefix(att.group(1)) if att else None)
         rows.append({"pid": pid, "ppid": ppid,
-                     "sessionId": sid.group(1).lower() if sid else None,
-                     "surfaceId": panel.group(1).upper()})
+                     "sessionId": sid,
+                     "surfaceId": panel.group(1).upper() if panel else None,
+                     "attach": bool(att)})
 
     # 부모가 로그인 셸인 것 = 그 탭의 최상위 claude.
     # ⚠️ 반드시 **argv** 로 본다 — 원래 cmd 로 보면 부모 env 의 SHELL=/bin/zsh 에 걸려
@@ -486,7 +500,7 @@ def claude_processes(use_cache=True):
     #   판단은 여기서 하지 않고 사실만 넘긴다 — 제목은 collect() 가 안다.
     #   (배정 오류는 조용한 오판을 낳으므로, 확실할 때만 고치고 아니면 그대로 둔다.)
     def _panel_of(r):
-        return r["surfaceId"]
+        return r["surfaceId"] or ("attach", r["pid"])    # 패널 모르는 attach 끼리 한 칸으로 뭉치지 않게
 
     # surface 당 하나로 정리 — 세션 UUID 를 아는 쪽을 우선하고, 그다음 먼저 뜬 것
     best = {}
@@ -497,9 +511,10 @@ def claude_processes(use_cache=True):
     # 최상위(로그인 셸 자식)가 session-id 를 잃어버린 경우(데몬 구조)의 후보다.
     alt = {}
     for r in rows:
-        if r["sessionId"]:
+        if r["sessionId"] and r["surfaceId"]:
             alt.setdefault(r["surfaceId"], []).append(r["sessionId"])
     procs = [{"pid": r["pid"], "sessionId": r["sessionId"], "surfaceId": r["surfaceId"],
+               "attach": r["attach"],
                "altSessionIds": sorted(set(alt.get(r["surfaceId"], [])))}
               for r in best.values()]
     out_val = (procs, None)
@@ -1419,6 +1434,24 @@ def collect(use_cache=True):
     if nerr:
         warnings.append(nerr)
     groups = workspace_group_map()
+
+    # ── 패널 env 없는 attach 클라이언트를 탭 제목으로 자리 찾기 (2026-10-27) ──────
+    # 포크 탭은 CMUX_PANEL_ID 가 없다(claude_processes 주석). 세션 id 는 명령줄로 확정돼 있으니,
+    # 그 세션의 aiTitle 과 **같은 제목인 탭이 딱 하나**일 때만 그 탭으로 본다. 포크 형제는 제목 끝에
+    # ⑂ 를 하나씩 더 달아 서로 다르므로 대개 가려진다. 둘 이상이거나 없으면 위치 불명으로 둔다.
+    taken = {p["surfaceId"] for p in procs if p["surfaceId"]}
+    for p in procs:
+        if p["surfaceId"] or not p.get("attach") or not p["sessionId"]:
+            continue
+        hits = [s for s, loc in idx.items()
+                if s not in taken and loc.get("tabTitle")
+                and claude_index.lookup_title(loc["tabTitle"], unique_only=True) == p["sessionId"]]
+        if len(hits) == 1:
+            p["surfaceId"] = hits[0]
+            taken.add(hits[0])
+        else:
+            print(f"[nav] attach {p['sessionId'][:8]}(pid {p['pid']}) 탭 못 찾음 — 제목 일치 {len(hits)}개",
+                  file=sys.stderr)
 
     # ── 명령줄 배정을 패널 제목으로 교차검증한다 (2026-09-02) ────────────────
     #
