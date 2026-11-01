@@ -1,6 +1,9 @@
 """cmux 상태 관리 & 복구 대시보드 — FastAPI 앱."""
+import faulthandler
 import json
 import os
+import signal
+import sys
 import time
 import re
 from contextlib import asynccontextmanager
@@ -11,6 +14,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import cmux_client
+
+# 서버가 느려지면 `kill -USR1 <pid>` 로 모든 스레드의 파이썬 스택을 pm2-err.log 에 남긴다(11-02: 이틀 떠 있던 서버가
+# CPU 190%·/api/nav 60초 무응답이었는데 C 표본만으로는 어느 코드인지 못 짚었다).
+faulthandler.register(signal.SIGUSR1, file=sys.stderr, all_threads=True)
 import db
 import demo
 import layout as layout_mod
