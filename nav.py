@@ -698,11 +698,39 @@ def surface_index(tree):
 
 # ---------- ③ cmux 알림 피드 → surface 별 최신 상태 ----------
 
+_NOTIF_REC = re.compile(r"^\d+:[0-9A-Fa-f-]{36}\|", re.M)
+
+
+def parse_notification_list(text):
+    """`cmux list-notifications` 출력 → 피드 파일과 같은 모양의 항목들.
+    한 건 = 번호:id|워크스페이스|탭|read·unread|제목|부제|본문|시각(ISO)|태그. 본문엔 «|»·줄바꿈이 들어갈 수 있어
+    앞 6칸·뒤 2칸을 고정으로 자른다."""
+    items = []
+    starts = [m.start() for m in _NOTIF_REC.finditer(text or "")]
+    for i, st in enumerate(starts):
+        rec = text[st:starts[i + 1] if i + 1 < len(starts) else len(text)].rstrip("\n")
+        head = rec.split("|", 6)
+        tail = head[-1].rsplit("|", 2) if len(head) == 7 else []
+        if len(tail) != 3:
+            continue
+        at = _parse_ts(tail[1])
+        if not at:
+            continue
+        items.append({"surfaceId": head[2], "isRead": head[3] == "read", "title": head[4], "subtitle": head[5],
+                      "body": tail[0], "createdAt": at - APPLE_EPOCH_OFFSET})
+    return items
+
+
 def notifications_by_surface():
     """surfaceId → 그 탭의 최신 Claude 알림 {kind, subtitle, body, at, unread}."""
     try:
-        with open(NOTIF_HISTORY, "rb") as f:
-            items = json.load(f).get("notifications", [])
+        try:
+            with open(NOTIF_HISTORY, "rb") as f:
+                items = json.load(f).get("notifications", [])
+        except FileNotFoundError:
+            # cmux 0.64 는 피드 파일을 쓰지 않는다(실측 11-03 홈맥 0.64.19: 실행 파일에 이름조차 없음, 알림은 앱 안에 99건).
+            # 파일만 보면 그 맥의 질문·권한 알림 근거가 통째로 빠진다 → 명령으로 읽는다.
+            items = parse_notification_list(cmux_client._run(["list-notifications"], timeout=6))
     except Exception as e:                                    # noqa: BLE001
         print(f"[nav] 알림 피드 읽기 실패: {e}", file=sys.stderr)
         return {}, f"알림 피드 읽기 실패: {e}"
