@@ -20,6 +20,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 
 import claude_index
@@ -1423,12 +1424,45 @@ def clean_title(t):
 
 # ---------- ⑥ 집계 ----------
 
+# 낡은 결과를 먼저 주고 새 수집은 뒤에서 하나만(11-05). 예전엔 3초 캐시가 끝나면 다음 요청이 수집이 끝날 때까지
+# 기다렸다. 재부팅 뒤 claude 162개·부하 61 에서 수집이 17초 걸리자 메뉴바(제한 8초)가 «The request timed out»,
+# 탭 이동도 실패했다. 또 폴러(메뉴바·웹·에이전트)마다 동시에 수집을 돌려 부하를 더 키웠다.
+STALE_MAX = 90.0           # 이보다 낡았으면 기다려서라도 새로 만든다(그 사이 서버가 멈췄던 경우)
+_COLLECT_LOCK = threading.Lock()
+
+
 def collect(use_cache=True):
+    if use_cache and _CACHE["data"]:
+        age = time.time() - _CACHE["at"]
+        if age < CACHE_TTL:
+            return _CACHE["data"]
+        if age < STALE_MAX:
+            _refresh_in_background()
+            return _CACHE["data"]
+    with _COLLECT_LOCK:                # 한 번에 하나 — 기다린 요청은 방금 만든 결과를 받는다
+        if use_cache and _CACHE["data"] and time.time() - _CACHE["at"] < CACHE_TTL:
+            return _CACHE["data"]
+        return _collect_now(use_cache)
+
+
+def _refresh_in_background():
+    if not _COLLECT_LOCK.acquire(blocking=False):
+        return                         # 이미 누가 만들고 있다
+
+    def run():
+        try:
+            _collect_now(True)
+        except Exception as e:         # noqa: BLE001
+            print(f"[nav] 뒤에서 수집 실패: {e}", file=sys.stderr)
+        finally:
+            _COLLECT_LOCK.release()
+    threading.Thread(target=run, daemon=True, name="nav-refresh").start()
+
+
+def _collect_now(use_cache=True):
     _RENAMED = panel_renamed_map()
     _WSCOLOR = workspace_color_map()
     now = time.time()
-    if use_cache and _CACHE["data"] and now - _CACHE["at"] < CACHE_TTL:
-        return _CACHE["data"]
 
     warnings = []
     procs, perr = claude_processes(use_cache=use_cache)
