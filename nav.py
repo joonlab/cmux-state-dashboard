@@ -1212,6 +1212,41 @@ _SCREEN_CACHE = {}             # surface ref → (at, kind)
 SCREEN_TTL = 8.0
 
 
+# ── 질문 보드(ask-board) ──────────────────────────────────────────────────────
+# 2026-11-06: AskUserQuestion 을 PreToolUse 훅이 질문 보드(127.0.0.1:8772)로 돌리면, 훅이 답을 기다리는 동안
+# 화면에는 «running PreToolUse hooks…» 스피너만 보이고 질문 선택지가 없다 → 화면·알림 판정으로는 «작업 중»이 된다.
+# 훅이 기다리는 동안 ~/.claude/ask-board/pending/<id>.json 에 pid 와 2초마다 갱신하는 heartbeat 를 쓴다.
+# 살아 있는 것(pid 존재 + heartbeat 10초 안)만 «질문 대기»의 근거로 쓴다. Esc 로 취소하면 훅이 지운다.
+ASK_BOARD_PENDING = os.path.join(os.path.expanduser("~"), ".claude", "ask-board", "pending")
+ASK_BOARD_STALE = 10
+
+
+def ask_board_pending():
+    """살아 있는 질문 보드 대기 {"S:<SURFACE UUID 대문자>": rec, "I:<sessionId>": rec}. 없으면 {}."""
+    out = {}
+    try:
+        names = os.listdir(ASK_BOARD_PENDING)
+    except OSError:
+        return out
+    now = time.time()
+    for fn in names:
+        if not fn.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(ASK_BOARD_PENDING, fn)) as f:
+                rec = json.load(f)
+            os.kill(int(rec.get("pid")), 0)
+        except (OSError, ValueError, TypeError):
+            continue
+        if now - float(rec.get("heartbeat") or 0) > ASK_BOARD_STALE:
+            continue
+        if rec.get("surface_id"):
+            out["S:" + str(rec["surface_id"]).upper()] = rec
+        if rec.get("session_id"):
+            out["I:" + str(rec["session_id"])] = rec
+    return out
+
+
 _INTERRUPTED = "[Request interrupted by user"
 _SPIN_LINE = re.compile(r"^\S\s+\S[^\n]*…\s*\(\d+[hms]", re.M)   # «✶ Cooking… (6m 13s · ↓ 17.4k tokens …)»
 
@@ -1584,6 +1619,7 @@ def _collect_now(use_cache=True):
     # 확정된 세션을 두 탭이 나눠 갖는 순간, 그 허상 위에서 상태·활동을 읽게 된다
     # (2026-08-25 '현재' 탭에서 같은 세션이 동명 워크스페이스 두 곳에 배정된 사고와 같은 뿌리).
     claimed = {p["sessionId"] for p in procs if p["sessionId"]}
+    boards = ask_board_pending()
 
     tabs = []
     for p in procs:
@@ -1671,6 +1707,15 @@ def _collect_now(use_cache=True):
             cand = os.path.basename(ti["transcript"])[:-6]
             if cand and sid and cand.lower() != str(sid).lower():
                 live_sid = cand
+        # ★ 질문 보드에 올라간 질문은 다른 모든 판정을 이긴다 — 화면엔 훅 스피너뿐이라 위 판정은 «작업 중»으로 나온다
+        ab = (boards.get("S:" + sid_surface) if sid_surface else None) or boards.get(f"I:{sid}") \
+            or (boards.get(f"I:{live_sid}") if live_sid else None)
+        ask_board = None
+        if ab:
+            mins = int((now - float(ab.get("since") or now)) // 60)
+            status, source = "question", f"질문 보드(답 기다림 {mins}분 · {ab.get('n') or '?'}문항)"
+            ask_board = {"askId": ab.get("ask_id"), "path": ab.get("path"), "port": ab.get("port"),
+                         "n": ab.get("n"), "firstQ": ab.get("first_q"), "since": ab.get("since")}
         tabs.append({
             "pid": p["pid"],
             "bgShells": bg_map.get(p["pid"], 0),
@@ -1702,8 +1747,10 @@ def _collect_now(use_cache=True):
             "lastStop": ti["lastStop"],
             "titleRenamedByUser": renamed,
             # 질문 대기일 때만 본문을 싣는다 — 나머지 알림 본문은 고정 문구라 화면에 가치가 없다
-            "askText": ((notif or {}).get("body") or None
+            "askText": (ask_board["firstQ"] if ask_board else
+                        (notif or {}).get("body") or None
                         if (notif or {}).get("kind") == "question" else None),
+            "askBoard": ask_board,          # 질문 보드에서 답을 기다리면 {askId,path,port,n,firstQ,since}
             "cwd": ti["cwd"],
             "transcript": ti["transcript"],
             "notif": notif,
