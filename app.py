@@ -775,6 +775,26 @@ def do_focus(body: FocusBody):
                         surface_id = ws["panes"][0]["surfaces"][0]["id"]
     if not surface_id:
         raise HTTPException(status_code=400, detail="surface 또는 workspace 필요")
+    # ★ 질문 보드(ask-board)에서 답을 기다리는 탭이면 터미널 대신 보드로 보낸다(2026-11-06 회사 맥 사용 피드백:
+    #   누르면 훅 스피너만 도는 터미널로 가서 «질문이 온 건지» 헷갈렸다). 훅이 같은 워크스페이스에 연 보드 분할 창이
+    #   있으면 그 창으로, 없거나 닫혔으면 기본 브라우저로 보드 주소를 연다.
+    #   권한 요청(Bash 실행 예/아니요)·터미널 질문은 보드 대기 표시가 없으므로 지금처럼 터미널로 간다.
+    board, board_via = nav.ask_board_pending().get("S:" + str(surface_id).upper()), None
+    target = surface_id
+    if board:
+        bs = board.get("board_surface")
+        if bs:
+            try:
+                cmux_client.focus_surface(bs)
+                target, board_via = bs, "split"
+            except cmux_client.CmuxError as e:
+                print(f"[focus] 보드 분할 창 포커스 실패 → 브라우저로: {e}", flush=True)
+        if not board_via:
+            import subprocess
+            url = f"http://127.0.0.1:{board.get('port') or 8772}{board.get('path') or '/'}"
+            subprocess.Popen(["open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            board_via = "browser"
+    surface_id = target
     # ── 순서가 중요하다 ────────────────────────────────────────────────
     # `open -a` 는 **앱**만 활성화하고, 어느 창을 앞에 둘지는 macOS 가 정한다(마지막 key window).
     # 그래서 앱 활성화를 마지막에 하면 cmux 내부 active 는 옳은데 화면엔 엉뚱한 창이 뜬다.
@@ -805,16 +825,17 @@ def do_focus(body: FocusBody):
     try:
         cur = cmux_client.focused_surface()
         active_now = cur["ref"]
-        verified = str(cur["id"] or "").upper() == str(surface_id).upper()
+        # 보드 분할 창은 ref(surface:N)로 들고 있으므로 ref 로도 맞춰 본다
+        verified = str(cur["id"] or "").upper() == str(surface_id).upper() or cur["ref"] == surface_id
         if not verified:      # 창 raise 로 탭 선택이 밀렸을 때만 한 번 더 확정한다
             cmux_client.focus_surface(surface_id)
             cur = cmux_client.focused_surface()
             active_now = cur["ref"]
-            verified = str(cur["id"] or "").upper() == str(surface_id).upper()
+            verified = str(cur["id"] or "").upper() == str(surface_id).upper() or cur["ref"] == surface_id
     except Exception as e:                                    # noqa: BLE001
         print(f"[focus] 검증 실패(무시): {e}", flush=True)
 
-    return {"ok": True, "surface": surface_id, "window": window_ok,
+    return {"ok": True, "surface": surface_id, "window": window_ok, "board": board_via,
             "activated": activated, "activateVia": how,
             "verified": verified, "activeNow": active_now}
 

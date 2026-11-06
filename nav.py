@@ -1734,7 +1734,8 @@ def _collect_now(use_cache=True):
             "title": tab_title,
             "cleanTitle": clean_title(tab_title),
             "status": status,
-            "statusLabel": STATUS_LABEL[status],
+            # 보드 질문은 «질문 보드 대기»로 따로 적는다 — 누르면 보드로 간다(app.py do_focus). 터미널 질문·권한과 구별
+            "statusLabel": "질문 보드 대기" if ask_board else STATUS_LABEL[status],
             "statusSource": source,
             "lastActivity": last_activity or None,
             "activitySource": act_src,
@@ -1747,7 +1748,7 @@ def _collect_now(use_cache=True):
             "lastStop": ti["lastStop"],
             "titleRenamedByUser": renamed,
             # 질문 대기일 때만 본문을 싣는다 — 나머지 알림 본문은 고정 문구라 화면에 가치가 없다
-            "askText": (ask_board["firstQ"] if ask_board else
+            "askText": (f"[질문 보드 · {ask_board.get('n') or '?'}문항] {ask_board['firstQ']}" if ask_board else
                         (notif or {}).get("body") or None
                         if (notif or {}).get("kind") == "question" else None),
             "askBoard": ask_board,          # 질문 보드에서 답을 기다리면 {askId,path,port,n,firstQ,since}
