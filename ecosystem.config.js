@@ -21,7 +21,9 @@ module.exports = {
     //   128GB 중 0.4% 라 시스템에는 무의미하고, 읽기 위주 대시보드가 512MB 를 쓰면
     //   그건 진짜 이상이므로 백스톱으로서는 여전히 유효하다.
     //   (시스템 차원의 메모리 감시는 memory-guard 데몬이 따로 한다)
-    max_memory_restart: '512M',
+    // 11-10: 탭 181개에서 큰 대화 기록을 읽는 순간 350MB 까지 튄다(평소 230MB) — 512M 이면 pm2 가 수시로 재시작해
+    //        메뉴바 «서버 없음», 회사 맥 55회. 새는 게 아니라 순간 피크라 넉넉히 올린다(무응답은 hang-watch 가 잡는다).
+    max_memory_restart: '1536M',
     env: { PYTHONUNBUFFERED: '1' },
     out_file: path.join(DIR, 'data/pm2-out.log'),
     error_file: path.join(DIR, 'data/pm2-err.log'),
