@@ -168,7 +168,9 @@ It's **which one is stopped, waiting on me.**
 permission   Claude is stopped, waiting for my approval. Nothing moves until I look.
              And it is quiet — no output, no progress. If I don't hunt for it I never know.  ← top
 question     It asked me something (AskUserQuestion) and is standing there. Same action from me.
+             Tabs waiting on the question board (ask-board) count here too; clicking opens the board.
 running      It's working. I'd like to see it, but it proceeds without me.
+workflow     A Workflow (dynamic workflow) is running. Drops out when it ends or is stopped via TaskStop.
 background   The turn is done and a shell is still going. When it finishes, someone has to poke it.
 waiting      Turn finished, sitting at the prompt. The work is already done.
 idle         Quiet.
@@ -444,6 +446,36 @@ The spinner was disabled with `animation:none` under `prefers-reduced-motion` an
 
 ---
 
+## Changes since the 2026-09-08 release
+
+Fixes for reports that came up in daily use. Details are in the commit messages.
+
+**Status decision**
+- New `workflow` status — tabs running a Workflow are told apart from `running`. Handles async runs, resuming the same runId, TaskStop, and agents that haven't returned yet.
+- Waiting on the question board (ask-board) counts as `question`, read from heartbeats in `~/.claude/ask-board/pending/*.json`. Clicking the card goes to the board.
+- Tabs with background subagents stay `background` (they used to drop to `waiting`).
+- Unanswered questions and permissions stay blocked over time; notification-only blocks that were already handled are checked against the screen and cleared.
+- Lines no longer misread as human prompts: the Esc-interrupt line, compact summaries, the folded question hint. Messages sent mid-turn (queued_command) are now read as prompts.
+- A session open in several tabs gets one status and the duplicate is shown. `claude -r <id>` tabs, continued-in sessions and forked (attach) sessions are located.
+
+**Search**
+- Session search covers everything the human said in that session plus Claude's replies, not just the last prompt (`prompt_index.py`). Idle tabs are included while searching.
+
+**Collection & ops**
+- Collection serves the stale result immediately and runs one refresh in the background, so the menu bar doesn't time out under load.
+- cmux 0.64 (no feed file) is read via `list-notifications`.
+- `kill -USR1 <pid>` dumps every thread's Python stack to the error log.
+- pm2 memory limit 1536M (it was restarting on momentary peaks).
+- Snapshots: fixed a session-ID misread and a dying capture thread that left gaps.
+
+**Recovery**
+- A new window per original window; refs are re-read every time a group is re-resolved.
+- Skipped items are counted by reason; sessions already running don't get a resume injected.
+
+**Menu bar**
+- `workflow` colour (violet) and symbol; the popover status list comes from the server's `statusOrder`.
+- Tab jumps retry every 1.5 s on connection refused; the failure text clears on the next successful refresh.
+
 ## Layout
 
 ```
@@ -454,6 +486,7 @@ snapshotter.py      normalise · hash · snapshot · independent backup
 layout.py           native session JSON → split tree parser
 restore.py          faithful layout restore · sequential creation · OOM budget   ← the heart of recovery
 claude_index.py     label / cwd / activity extraction from .jsonl
+prompt_index.py     session search index — everything the human said + Claude's replies (reads only appended lines)
 db.py               SQLite (tiered retention · zlib)
 demo.py             demo mode — synthetic state in the real API's shape
 demo_fixture.py     its data. Edit this alone to change the demo

@@ -10,3 +10,7 @@ static/*.bak-*
 # Swift 빌드 산출물
 menubar/.build/
 menubar/CmuxMinimap.app/
+
+# 로컬 전용 — 복원 기록·편집 전 백업
+_restore_*/
+*.bak.*
