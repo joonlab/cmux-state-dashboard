@@ -1294,7 +1294,10 @@ def screen_prompt_kind(ref):
         _SCREEN_BUSY[ref] = None
     else:
         lines = (txt or "").splitlines()
-        tail = [ln.strip() for ln in lines[-45:]]
+        # 진짜 안내 줄은 맨 앞(질문 0칸·권한 1칸)에서 시작한다. «⎿» 아래 도구 출력은 5칸 넘게 들여 써진다 — 들여 쓴 줄은
+        # 판정에 넣지 않는다(11-14 회사 맥: 다른 Claude 의 질문 화면을 녹화하는 탭이 도구 출력 속 «Enter to select» 때문에
+        # 작업 중 ↔ 질문 대기를 83번 오가며 막힘 알림을 울렸다).
+        tail = [ln.strip() for ln in lines[-45:] if len(ln) - len(ln.lstrip()) <= 2]
         # 지금 Claude Code 의 작업 표시는 탭 제목이 아니라 **화면의 스피너 줄**이다(10-10 실측: 제목에 스피너 마커가 안 붙는다)
         _SCREEN_BUSY[ref] = bool(_SPIN_LINE.search("\n".join(lines[-25:])))
         kind = None
