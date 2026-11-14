@@ -1313,6 +1313,10 @@ def screen_prompt_kind(ref):
             if ln.startswith("Esc to cancel") or ln.startswith("Do you want to proceed?"):
                 kind = "permission"
                 break
+        # 안내 줄 **아래에** 이 세션의 작업 중 표시가 있으면 질문·권한 화면이 아니다 — 진짜 프롬프트가 떠 있으면 Claude 는
+        # 멈춰 있어 그 아래 스피너가 나올 수 없다. 실행 중 명령의 출력이 덜 들여 써져 보이는 순간의 오판을 막는다(11-14).
+        if kind and _SPIN_LINE.search("\n".join(tail[j + 1:])):
+            kind = None
     _SCREEN_CACHE[ref] = (time.time(), kind)
     if len(_SCREEN_CACHE) > 400:
         _SCREEN_CACHE.clear()
