@@ -420,6 +420,19 @@ def _sid_from_prefix(prefix):
     return hits.pop() if len(hits) == 1 else None
 
 
+def _started_at(etime):
+    """ps 의 etime([[dd-]hh:]mm:ss) → 프로세스가 시작된 시각(epoch). 못 읽으면 None."""
+    try:
+        days, _, rest = etime.rpartition("-")
+        parts = [int(x) for x in rest.split(":")]
+        while len(parts) < 3:
+            parts.insert(0, 0)
+        h, mi, se = parts
+        return time.time() - ((int(days) if days else 0) * 86400 + h * 3600 + mi * 60 + se)
+    except (ValueError, AttributeError):
+        return None
+
+
 def claude_processes(use_cache=True):
     """탭에서 돌고 있는 claude 목록. [{pid, sessionId, surfaceId}], 에러 문자열.
 
@@ -438,7 +451,7 @@ def claude_processes(use_cache=True):
     if use_cache and _PROC_CACHE["val"] is not None and now - _PROC_CACHE["at"] < PROC_TTL:
         return _PROC_CACHE["val"]
     try:
-        raw = subprocess.run(["ps", "-E", "-axww", "-o", "pid=,ppid=,command="],
+        raw = subprocess.run(["ps", "-E", "-axww", "-o", "pid=,ppid=,etime=,command="],
                              capture_output=True, timeout=15).stdout or b""
     except Exception as e:                                    # noqa: BLE001
         print(f"[nav] ps 실패: {e}", file=sys.stderr)
@@ -448,10 +461,10 @@ def claude_processes(use_cache=True):
     argv_by_pid = {}         # pid → argv(환경변수 제거) — 부모 판별도 이걸로 한다
     rows = []
     for line in out.splitlines():
-        m = re.match(r"\s*(\d+)\s+(\d+)\s+(.*)", line)
+        m = re.match(r"\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)", line)
         if not m:
             continue
-        pid, ppid, cmd = int(m.group(1)), int(m.group(2)), m.group(3)
+        pid, ppid, etime, cmd = int(m.group(1)), int(m.group(2)), m.group(3), m.group(4)
         argv = _split_argv(cmd)
         argv_by_pid[pid] = argv
         if "cmux hooks" in argv:
@@ -475,7 +488,7 @@ def claude_processes(use_cache=True):
         #    «질문 대기 🔒»가 됐다(실측 2026-10-04 tab:579 — 실제로는 턴 끝 + 셸 1개).
         sid = re.search(r"(?:^|\s)(?:--session-id|--resume|-r)(?:\s+|=)([0-9a-fA-F-]{36})", argv)
         sid = sid.group(1).lower() if sid else (_sid_from_prefix(att.group(1)) if att else None)
-        rows.append({"pid": pid, "ppid": ppid,
+        rows.append({"pid": pid, "ppid": ppid, "started": _started_at(etime),
                      "sessionId": sid,
                      "surfaceId": panel.group(1).upper() if panel else None,
                      "attach": bool(att)})
@@ -520,7 +533,7 @@ def claude_processes(use_cache=True):
         if r["sessionId"] and r["surfaceId"]:
             alt.setdefault(r["surfaceId"], []).append(r["sessionId"])
     procs = [{"pid": r["pid"], "sessionId": r["sessionId"], "surfaceId": r["surfaceId"],
-               "attach": r["attach"],
+               "attach": r["attach"], "started": r.get("started"),
                "altSessionIds": sorted(set(alt.get(r["surfaceId"], [])))}
               for r in best.values()]
     out_val = (procs, None)
@@ -1646,7 +1659,19 @@ def _collect_now(use_cache=True):
                 sid_src = "제목 추정(다른 탭이 이미 씀 → 버림)"
             elif (loc or {}).get("tabTitle") and \
                     claude_index.title_count((loc or {}).get("tabTitle")) > 1:
-                sid_src = "없음(제목이 같은 세션 여럿 — 못 가림)"
+                # ★ 같은 제목이 여럿이면 **프로세스 시작 시각**으로 가린다(11-14 신고: 홈맥 «외주데스크 홈맥 관제탑»
+                #   — 세션 id 없이 프롬프트만 주고 띄운 claude 라 명령줄에 id 가 없고, 같은 제목 세션이 둘이라
+                #   폰에 «세션 id 를 모릅니다»). 대화 기록은 claude 가 뜬 뒤에 생기므로, 시작 직후(−2분~+10분)에
+                #   생긴 후보가 하나뿐이면 그게 이 탭이다(실측: 시작 14:01:21, 기록 생성 14:01:23, 다른 후보는 3일 전).
+                st = p.get("started")
+                near = [s for s, born in claude_index.title_sessions((loc or {}).get("tabTitle"))
+                        if st and born and st - 120 <= born <= st + 600
+                        and s not in claimed and s not in cmdline_sids]
+                if len(near) == 1:
+                    sid, sid_src = near[0], "제목+시작 시각(같은 제목 여럿)"
+                    claimed.add(sid)
+                else:
+                    sid_src = "없음(제목이 같은 세션 여럿 — 못 가림)"
             else:
                 sid_src = "없음"
         ti = transcript_info(sid)

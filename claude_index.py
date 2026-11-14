@@ -250,6 +250,7 @@ def _refresh_title_index(force=False):
         return
     cutoff = now - _TITLE_MAX_AGE_DAYS * 86400
     idx = {}
+    idx_all = {}
     for p in glob.glob(os.path.join(CLAUDE_PROJECTS, "*", "*.jsonl")):
         try:
             mtime = os.path.getmtime(p)
@@ -295,13 +296,35 @@ def _refresh_title_index(force=False):
         #   다른 쪽에서도 끝난 것처럼 보였다(신고 2026-09-20).
         #   실측: 45일 내 제목 476개 중 겹치는 것은 16개(3.4%) — 충돌을 아는 값이 싸다.
         n = (prev[2] if prev else 0) + 1
+        idx_all.setdefault(key, []).append((sid, p))
         if prev is None or mtime > prev[1]:
             idx[key] = (sid, mtime, n)
         else:
             idx[key] = (prev[0], prev[1], n)
     _title_index = idx
+    _title_all.clear()
+    _title_all.update(idx_all)
     _title_index_ts = now
     _title_miss.clear()      # 새 세대 — 실패 기록 리셋
+
+
+_title_all = {}           # 제목 → [(sid, 경로)] — 같은 제목이 여럿일 때 후보 전부(title_sessions)
+
+
+def title_sessions(title):
+    """같은 제목의 세션 후보 전부 [(sid, 대화 기록이 생긴 시각)]. 제목 하나로는 못 가릴 때 다른 근거와 함께 쓴다."""
+    key = normalize_title(title)
+    if not key:
+        return []
+    _refresh_title_index()
+    out = []
+    for sid, p in _title_all.get(key, []):
+        try:
+            st = os.stat(p)
+            out.append((sid, getattr(st, "st_birthtime", None) or st.st_ctime))
+        except OSError:
+            continue
+    return out
 
 
 def title_count(title):
